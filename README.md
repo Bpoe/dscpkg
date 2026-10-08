@@ -70,7 +70,8 @@ dscpkg remove --resource Microsoft.GuestConfiguration/users \
   --version 2026-06-30-preview
 ```
 
-Print the current package paths for shell integration:
+Print the current package paths for shell integration, without a
+`DSC_RESOURCE_PATH=` prefix:
 
 ```sh
 dscpkg env
@@ -80,14 +81,14 @@ The CLI cannot change its parent shell's environment. For Bash, import the print
 value after install or update:
 
 ```sh
-export DSC_RESOURCE_PATH="$(dscpkg env | sed 's/^DSC_RESOURCE_PATH=//')"
+export DSC_RESOURCE_PATH="$(dscpkg env)"
 dsc.exe resource get --resource Microsoft.GuestConfiguration/users
 ```
 
 For PowerShell:
 
 ```powershell
-$env:DSC_RESOURCE_PATH = ((dscpkg env) -replace '^DSC_RESOURCE_PATH=', '')
+$env:DSC_RESOURCE_PATH = dscpkg env
 dsc.exe resource get --resource Microsoft.GuestConfiguration/users
 ```
 

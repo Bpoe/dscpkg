@@ -108,7 +108,7 @@ func run(args []string, stdout, stderr *os.File) error {
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "DSC_RESOURCE_PATH=%s\n", value)
+		_, err = fmt.Fprintln(stdout, value)
 		return err
 	}
 	return usageError()
