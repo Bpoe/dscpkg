@@ -27,6 +27,7 @@ func TestEnvPrintsPathValue(t *testing.T) {
 				existing = filepath.Join(root, "custom resources")
 				paths = append(paths, existing)
 			}
+
 			t.Setenv("DSC_RESOURCE_PATH", existing)
 			if test.cached {
 				cached := filepath.Join(packagesDir, "example.test", "shared", "1.0.0")
@@ -66,5 +67,32 @@ func TestEnvPrintsPathValue(t *testing.T) {
 				t.Fatalf("unexpected stderr: %q", diagnostics)
 			}
 		})
+	}
+}
+
+func TestPublishHelpListsPublishingFlags(t *testing.T) {
+	root := t.TempDir()
+	stdout, err := os.CreateTemp(root, "stdout")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stdout.Close()
+	stderr, err := os.CreateTemp(root, "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stderr.Close()
+	err = run([]string{"publish", "-h"}, stdout, stderr)
+	if err != nil {
+		t.Fatalf("help request failed: %v", err)
+	}
+	output, err := os.ReadFile(stderr.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, flag := range []string{"--repository", "--package", "--package-version", "--platform", "--archive", "--archive-url", "--resource"} {
+		if !strings.Contains(string(output), flag) {
+			t.Fatalf("publish help does not include %s: %s", flag, output)
+		}
 	}
 }

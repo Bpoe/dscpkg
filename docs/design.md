@@ -31,9 +31,15 @@ This document describes repository discovery, content APIs, and the on-disk layo
 
 ## Non-goals
 
-- Package authoring, signing, or publishing (server-side concerns).
+- Package authoring, package compilation, archive creation, cryptographic signing,
+  and deployment to a remote repository or hosting service.
+- Server components, Git hosting integrations, and cloud upload APIs.
 - Dependency resolution across multiple packages — the current flow assumes **one
   package per resource type**.
+
+The CLI supports **local filesystem publication** of repository metadata and
+pre-built archives with `dscpkg publish`. This operation only maintains the static
+repository tree; hosting, committing, and deployment remain separate concerns.
 
 ## Advantages
 
@@ -295,6 +301,61 @@ A customer-hosted mirror reproduces this same tree under whatever base URL they
 control. The client derives every request URL from the base URLs in the discovery
 document, so the physical hosting location (Azure Blob container, S3 bucket, internal
 CDN, local test server) is transparent to the client.
+
+## Local filesystem publishing
+
+`dscpkg publish` initializes or updates a repository directory without hosting
+specific behavior. An initial publish creates `.well-known/dsc.json` with relative
+endpoint references (`../v1/catalog.json`, `../v1/resources`, and
+`../v1/packages`) and initializes the catalog's `resources` map with the published
+resource entries.
+These references work both at a domain root and under a project-site prefix such as
+`https://example.github.io/dsc-resources/`.
+
+Each invocation requires a package identity/version, a target `os_arch` platform,
+one or more explicit `Namespace/name@resource-version` identities, and exactly one
+archive source:
+
+- `--archive FILE` validates a local ZIP and copies its exact bytes under
+  `v1/packages/{namespace}/{package}/` using the deterministic filename
+  `{package}_{packageVersion}_{platform}.zip`. Its package descriptor URL is
+  relative to that descriptor.
+- `--archive-url URL` downloads an HTTP(S) ZIP to a temporary file, follows redirects,
+  validates the ZIP, and calculates SHA-256. It records the original supplied URL
+  and hash, then deletes the temporary file without copying the archive into the
+  repository.
+
+Both modes share validation, hashing, and metadata generation. ZIP contents are not
+extracted or used to infer resource versions. Publishing additional platforms merges
+the new platform into the package descriptor; publishing a package version adds it
+to each explicitly supplied resource descriptor while preserving earlier package
+versions. One package may provide several resources. A resource descriptor still
+identifies exactly one package provider, so attempting to change that provider is
+an error.
+
+Published package identity/version/platform combinations are immutable. Repeating
+the same archive and URL is idempotent; different archive bytes or a different URL
+for the same platform are rejected. JSON serialization is deterministic, SHA-256
+hashes are calculated by the publisher, and unchanged files are not rewritten.
+Resource descriptor filenames include the full SHA-256 digest of their exact
+serialized bytes. When a descriptor changes, the publisher leaves its old
+content-addressed file in place, installs the new descriptor and any archive or
+package descriptor first, then atomically replaces `catalog.json` last. A crash may
+leave unreferenced files but cannot publish a catalog that refers to missing new
+content.
+
+The command performs no Git operations, uploads, or deployment. For GitHub Pages,
+track the generated directory and configure Pages separately to serve it; if Jekyll
+processing is enabled, place an empty `.nojekyll` file in the published site root
+so the `.well-known` discovery document is retained. The publisher intentionally
+does not create hosting-specific files. The same tree is suitable for a local
+static-file server, IIS, Nginx, Apache, object storage, or another static host.
+
+Signing and key management are not implemented by the publisher. Existing
+configuration and signature files are retained. Publication is rejected when it
+would invalidate a signed descriptor/catalog or leave metadata unsigned for a
+namespace whose policy requires signatures; sign such metadata with a separate
+supported workflow.
 
 ## Content signing
 

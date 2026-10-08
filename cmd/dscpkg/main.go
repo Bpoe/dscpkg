@@ -35,24 +35,48 @@ func run(args []string, stdout, stderr *os.File) error {
 	command := args[0]
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	packagesDir := flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
-	platform := flags.String("platform", currentPlatform(), "target os_arch platform")
+	var packagesDir *string
+	var platform string
+	var repositoryDirectory, packageName, packageVersion, archive, archiveURL string
+	var publishResources stringList
 	var repositories stringList
-	flags.Var(&repositories, "repository", "repository origin, in precedence order (repeatable)")
-	var resource, version, packageVersion string
+	var resource, version, selectedPackageVersion string
 	switch command {
 	case "install":
+		packagesDir = flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
+		flags.Var(&repositories, "repository", "repository origin, in precedence order (repeatable)")
+		flags.StringVar(&platform, "platform", currentPlatform(), "target os_arch platform")
 		flags.StringVar(&resource, "resource", "", "resource type (Namespace/name)")
 		flags.StringVar(&version, "version", "", "resource version")
-		flags.StringVar(&packageVersion, "package-version", "", "exact package version (optional)")
-	case "update", "cleanup", "list", "env":
-	case "remove":
-		flags.StringVar(&resource, "resource", "", "resource type (Namespace/name)")
-		flags.StringVar(&version, "version", "", "resource version (optional)")
+		flags.StringVar(&selectedPackageVersion, "package-version", "", "exact package version (optional)")
+	case "update", "cleanup":
+		packagesDir = flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
+		flags.Var(&repositories, "repository", "repository origin, in precedence order (repeatable)")
+		flags.StringVar(&platform, "platform", currentPlatform(), "target os_arch platform")
+	case "publish":
+		flags.StringVar(&repositoryDirectory, "repository", "", "local repository directory")
+		flags.StringVar(&packageName, "package", "", "package identity (namespace/name)")
+		flags.StringVar(&packageVersion, "package-version", "", "package version")
+		flags.StringVar(&platform, "platform", "", "target os_arch platform")
+		flags.StringVar(&archive, "archive", "", "local ZIP archive")
+		flags.StringVar(&archiveURL, "archive-url", "", "externally hosted HTTP(S) ZIP URL")
+		flags.Var(&publishResources, "resource", "resource identity and version (Namespace/name@version; repeatable)")
+		flags.Usage = func() {
+			fmt.Fprintln(stderr, "usage: dscpkg publish --repository DIR --package namespace/name --package-version VERSION --platform os_arch (--archive FILE | --archive-url URL) --resource Namespace/name@version [--resource ...]")
+			flags.PrintDefaults()
+		}
+	case "list", "env", "remove":
+		packagesDir = flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
 	default:
 		return usageError()
 	}
-	if err := flags.Parse(args[1:]); err != nil {
+	if command == "remove" {
+		flags.StringVar(&resource, "resource", "", "resource type (Namespace/name)")
+		flags.StringVar(&version, "version", "", "resource version (optional)")
+	}
+	if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
 		return err
 	}
 	if flags.NArg() != 0 {
@@ -65,13 +89,13 @@ func run(args []string, stdout, stderr *os.File) error {
 			return errors.New("--repository is required")
 		}
 		client := dscpkg.NewClient(*packagesDir, repositories)
-		client.Platform = *platform
+		client.Platform = platform
 		switch command {
 		case "install":
 			if resource == "" || version == "" {
 				return errors.New("install requires --resource and --version")
 			}
-			result, err := client.Install(resource, version, packageVersion)
+			result, err := client.Install(resource, version, selectedPackageVersion)
 			if err != nil {
 				return err
 			}
@@ -103,6 +127,17 @@ func run(args []string, stdout, stderr *os.File) error {
 			return err
 		}
 		return nil
+	case "publish":
+		if repositoryDirectory == "" || packageName == "" || packageVersion == "" || platform == "" {
+			return errors.New("publish requires --repository, --package, --package-version, and --platform")
+		}
+		if err := dscpkg.Publish(dscpkg.PublishOptions{
+			Repository: repositoryDirectory, Package: packageName, PackageVersion: packageVersion,
+			Platform: platform, Archive: archive, ArchiveURL: archiveURL, Resources: publishResources,
+		}); err != nil {
+			return err
+		}
+		return nil
 	case "env":
 		value, err := dscpkg.ResourcePath(*packagesDir, os.Getenv("DSC_RESOURCE_PATH"))
 		if err != nil {
@@ -121,7 +156,7 @@ func printJSON(out *os.File, value any) error {
 }
 
 func usageError() error {
-	return errors.New("usage: dscpkg <install|update|cleanup|list|remove|env> [flags]")
+	return errors.New("usage: dscpkg <install|update|cleanup|publish|list|remove|env> [flags]")
 }
 
 func defaultPackagesDir() string {
