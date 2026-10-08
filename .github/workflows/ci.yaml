@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            binary: dscpkg
+            test_args: -race
+          - os: windows-latest
+            binary: dscpkg.exe
+            test_args: ""
+          - os: macos-latest
+            binary: dscpkg
+            test_args: -race
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        shell: bash
+        run: gofmt -w $(git ls-files '*.go') && git diff --exit-code -- '*.go'
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ${{ matrix.test_args }} ./...
+
+      - name: Build
+        run: go build -trimpath -o ${{ matrix.binary }} ./cmd/dscpkg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dscpkg-${{ runner.os }}-${{ runner.arch }}
+          path: ${{ matrix.binary }}
+          if-no-files-found: error
