@@ -188,10 +188,11 @@ func extractZip(archivePath, destination string) error {
 	}
 	for _, file := range reader.File {
 		name := file.Name
-		if strings.Contains(name, `\`) || filepath.IsAbs(name) || strings.HasPrefix(name, "/") {
+		localName := filepath.FromSlash(name)
+		if strings.Contains(name, `\`) || !filepath.IsLocal(localName) {
 			return fmt.Errorf("unsafe archive path %q", name)
 		}
-		clean := filepath.Clean(filepath.FromSlash(name))
+		clean := filepath.Clean(localName)
 		if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
 			return fmt.Errorf("unsafe archive path %q", name)
 		}
