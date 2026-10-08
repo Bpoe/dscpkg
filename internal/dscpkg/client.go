@@ -172,11 +172,7 @@ func (c *Client) Cleanup() ([]string, error) {
 		}
 		required[canonicalPath(resolved.Path)] = true
 	}
-	active, err := ResourcePath(c.PackagesDir, os.Getenv("DSC_RESOURCE_PATH"))
-	if err != nil {
-		return nil, err
-	}
-	activePaths := strings.Split(active, string(os.PathListSeparator))
+	activePaths := splitPaths(os.Getenv("DSC_RESOURCE_PATH"))
 	activeSet := make(map[string]bool)
 	for _, item := range activePaths {
 		if item != "" {
