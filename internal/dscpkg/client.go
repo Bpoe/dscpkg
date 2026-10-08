@@ -180,7 +180,7 @@ func (c *Client) Cleanup() ([]string, error) {
 		}
 	}
 
-	var removed []string
+	removed := make([]string, 0)
 	root := c.PackagesDir
 	namespaces, err := os.ReadDir(root)
 	if errors.Is(err, os.ErrNotExist) {

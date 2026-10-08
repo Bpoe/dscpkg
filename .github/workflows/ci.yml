@@ -33,10 +33,10 @@ jobs:
       - name: Vet
         run: go vet ./...
       - name: Test with race detection
-        if: runner.os == 'Linux'
+        if: runner.os != 'Windows'
         run: go test -race ./...
       - name: Test
-        if: runner.os != 'Linux'
+        if: runner.os == 'Windows'
         run: go test ./...
       - name: Build
         shell: bash

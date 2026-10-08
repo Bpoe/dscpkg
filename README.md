@@ -129,6 +129,6 @@ go build -trimpath -o dist/dscpkg ./cmd/dscpkg
 ```
 
 The GitHub Actions workflow runs formatting, vetting, tests (with race detection on
-Linux), and builds on Linux, Windows, and macOS. It uploads one executable artifact
+Linux and macOS), and builds on Linux, Windows, and macOS. It uploads one executable artifact
 for each runner operating system. Go build caching is enabled through
 `actions/setup-go`.
