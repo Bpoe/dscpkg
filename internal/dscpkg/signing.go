@@ -67,10 +67,14 @@ func verifyJWSKey(algorithm string, jwk JWK, input, signature []byte) error {
 		if err != nil {
 			return err
 		}
+		curve := elliptic.P256()
+		if !curve.IsOnCurve(x, y) {
+			return errors.New("invalid EC public key point")
+		}
 		if len(signature) != 64 {
 			return errors.New("ES256 signature must be 64 bytes")
 		}
-		pub := &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}
+		pub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
 		digest := sha256.Sum256(input)
 		if !ecdsa.Verify(pub, digest[:], new(big.Int).SetBytes(signature[:32]), new(big.Int).SetBytes(signature[32:])) {
 			return errors.New("ES256 verification failed")

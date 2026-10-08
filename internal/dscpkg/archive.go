@@ -40,6 +40,9 @@ func (c *Client) installPackage(repo *repository, resolved packageResolution) (b
 	if !exists {
 		return false, fmt.Errorf("package %s %s has no archive for platform %s", resolved.Package, resolved.PackageVersion, c.Platform)
 	}
+	if strings.TrimSpace(archive.URL) == "" {
+		return false, errors.New("package archive descriptor has no URL")
+	}
 	if len(archive.Hashes) == 0 {
 		return false, errors.New("package archive descriptor has no hashes")
 	}

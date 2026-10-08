@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: true
+      - name: Check formatting
+        shell: bash
+        run: |
+          files="$(gofmt -l $(git ls-files '*.go'))"
+          if [[ -n "$files" ]]; then
+            echo "These Go files need gofmt:"
+            echo "$files"
+            exit 1
+          fi
+      - name: Vet
+        run: go vet ./...
+      - name: Test with race detection
+        if: runner.os == 'Linux'
+        run: go test -race ./...
+      - name: Test
+        if: runner.os != 'Linux'
+        run: go test ./...
+      - name: Build
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            go build -trimpath -o dist/dscpkg.exe ./cmd/dscpkg
+          else
+            go build -trimpath -o dist/dscpkg ./cmd/dscpkg
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dscpkg-${{ runner.os }}-${{ runner.arch }}
+          path: dist/*
+          if-no-files-found: error

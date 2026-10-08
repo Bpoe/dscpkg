@@ -65,6 +65,9 @@ type JWK struct {
 	E   string `json:"e,omitempty"`
 }
 
+// Populate with publisher trust anchors when the design publishes their public keys.
+var bundledPolicies = map[string]Policy{}
+
 type policyDocument struct {
 	Policies []Policy `json:"policies"`
 }

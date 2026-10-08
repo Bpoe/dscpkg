@@ -244,6 +244,31 @@ func TestRequiredSignatureRejectsTampering(t *testing.T) {
 	}
 }
 
+func TestArchiveHashMismatchPreventsInstallation(t *testing.T) {
+	repo := newTestRepository(t)
+	repo.discovery()
+	repo.set("/v1/policies.json", []byte(`{"policies":[]}`), nil)
+	descriptor := []byte(`{"packages":{"example.test/shared":{"versions":{"1.0.0":{}}}}}`)
+	repo.set("/v1/resources/example.test/one/2026-01-01.json", descriptor, nil)
+	repo.set("/v1/catalog.json", catalogBody(map[string][]byte{testResourceOne: descriptor}), nil)
+	repo.set("/v1/packages/example.test/shared/1.0.0.json",
+		[]byte(fmt.Sprintf(`{"archives":{"linux_amd64":{"url":"/archive.zip","hashes":[%q]}}}`, "sha256:"+strings.Repeat("0", 64))), nil)
+	repo.set("/archive.zip", makeZip(t, "resource.json", []byte("content")), nil)
+	packagesDir := t.TempDir()
+	client := NewClient(packagesDir, []string{repo.server.URL})
+	client.Platform = "linux_amd64"
+	if _, err := client.Install(testResourceOne, "2026-01-01", ""); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
+		t.Fatalf("expected archive hash verification failure, got %v", err)
+	}
+	installed := filepath.Join(packagesDir, "example.test", "shared", "1.0.0")
+	if _, err := os.Stat(installed); !os.IsNotExist(err) {
+		t.Fatalf("hash-mismatched package was installed: %v", err)
+	}
+	if _, err := ReadRegistry(packagesDir); err != nil {
+		t.Fatalf("registry should remain readable: %v", err)
+	}
+}
+
 func TestSafeExtractionRejectsZipSlip(t *testing.T) {
 	archive := makeZip(t, "../escape.txt", []byte("unsafe"))
 	destination := t.TempDir()

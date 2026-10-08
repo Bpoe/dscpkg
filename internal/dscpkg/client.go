@@ -254,6 +254,9 @@ func (c *Client) resolve(resource, version, requestedPackageVersion string) (pac
 		if !found {
 			continue
 		}
+		if strings.TrimSpace(entry.URL) == "" {
+			return packageResolution{}, nil, fmt.Errorf("catalog entry for %s@%s has no descriptor URL", resource, version)
+		}
 		if _, _, err := parseDigest(entry.Digest); err != nil {
 			return packageResolution{}, nil, fmt.Errorf("catalog entry for %s@%s has invalid digest: %w", resource, version, err)
 		}
@@ -362,6 +365,9 @@ func (c *Client) discover(origin string) (*repository, error) {
 			}
 			doc.Policies = policies
 		}
+		if doc.Policies == nil {
+			return nil, errors.New("signing policy document must contain a policies array")
+		}
 		for _, policy := range doc.Policies {
 			ns := strings.ToLower(policy.Namespace)
 			if ns == "" || len(strings.Split(ns, "/")) != 1 {
@@ -370,6 +376,9 @@ func (c *Client) discover(origin string) (*repository, error) {
 			policy.Namespace = ns
 			repo.policies[ns] = policy
 		}
+	}
+	for ns, policy := range bundledPolicies {
+		repo.policies[ns] = policy
 	}
 	return repo, nil
 }
