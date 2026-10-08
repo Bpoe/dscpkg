@@ -21,6 +21,11 @@ const maxArchiveSize = int64(4 << 30)
 const maxExpandedSize = uint64(8 << 30)
 
 func (c *Client) installPackage(repo *repository, resolved packageResolution) (bool, error) {
+	if info, err := os.Stat(resolved.Path); err == nil && info.IsDir() {
+		return false, nil
+	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
 	infoURL, err := packageDocumentURL(repo.discovery.Packages, resolved.Package, resolved.PackageVersion)
 	if err != nil {
 		return false, err
@@ -59,12 +64,6 @@ func (c *Client) installPackage(repo *repository, resolved packageResolution) (b
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return false, err
 	}
-	if info, err := os.Stat(resolved.Path); err == nil && info.IsDir() {
-		return false, nil
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return false, err
-	}
-
 	tmp, err := os.CreateTemp("", "dscpkg-archive-*.zip")
 	if err != nil {
 		return false, err

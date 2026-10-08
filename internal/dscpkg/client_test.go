@@ -244,6 +244,71 @@ func TestRequiredSignatureRejectsTampering(t *testing.T) {
 	}
 }
 
+func TestRelativeDiscoveryEndpointsAndSigningNamespace(t *testing.T) {
+	repo := newTestRepository(t)
+	repo.set("/.well-known/dsc.json", []byte(`{
+		"catalog.v1":"../v1/catalog.json",
+		"resources.v1":"../v1/resources",
+		"packages.v1":"../v1/packages",
+		"signing-policies.v1":"../v1/policies.json"
+	}`), nil)
+	repo.set("/v1/policies.json", []byte(`{"policies":[{"namespace":" example.test ","required":true}]}`), nil)
+
+	client := NewClient(t.TempDir(), []string{repo.server.URL})
+	discovered, err := client.discover(repo.server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if discovered.discovery.Resources != repo.server.URL+"/v1/resources" ||
+		discovered.discovery.Packages != repo.server.URL+"/v1/packages" ||
+		discovered.catalogURL != repo.server.URL+"/v1/catalog.json" {
+		t.Fatalf("discovery endpoints were not resolved: %+v", discovered.discovery)
+	}
+	if policy, ok := discovered.policies["example.test"]; !ok || !policy.Required {
+		t.Fatalf("trimmed signing namespace was not applied: %+v", discovered.policies)
+	}
+
+	repo.set("/v1/policies.json", []byte(`{"policies":[{"namespace":"example.test/other","required":true}]}`), nil)
+	if _, err := client.discover(repo.server.URL); err == nil {
+		t.Fatal("expected a multi-segment signing namespace to be rejected")
+	}
+}
+
+func TestCachedPackageDoesNotFetchPackageDescriptor(t *testing.T) {
+	repo := newTestRepository(t)
+	repo.discovery()
+	repo.set("/v1/policies.json", []byte(`{"policies":[]}`), nil)
+	descriptor := []byte(`{"packages":{"example.test/shared":{"versions":{"1.0.0":{}}}}}`)
+	repo.set("/v1/resources/example.test/one/2026-01-01.json", descriptor, nil)
+	repo.set("/v1/resources/example.test/two/2026-01-01.json", descriptor, nil)
+	repo.set("/v1/catalog.json", catalogBody(map[string][]byte{
+		testResourceOne: descriptor,
+		testResourceTwo: descriptor,
+	}), nil)
+	archive := makeZip(t, "resource.json", []byte("content"))
+	repo.set("/v1/packages/example.test/shared/1.0.0.json",
+		[]byte(fmt.Sprintf(`{"archives":{"linux_amd64":{"url":"/archive.zip","hashes":[%q]}}}`, "sha256:"+digest(archive))), nil)
+	repo.set("/archive.zip", archive, nil)
+
+	packagesDir := t.TempDir()
+	client := NewClient(packagesDir, []string{repo.server.URL})
+	client.Platform = "linux_amd64"
+	if _, err := client.Install(testResourceOne, "2026-01-01", ""); err != nil {
+		t.Fatal(err)
+	}
+	repo.mu.Lock()
+	delete(repo.assets, "/v1/packages/example.test/shared/1.0.0.json")
+	repo.mu.Unlock()
+
+	result, err := client.Install(testResourceTwo, "2026-01-01", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Downloaded {
+		t.Fatalf("expected the cached package to be reused: %+v", result)
+	}
+}
+
 func TestArchiveHashMismatchPreventsInstallation(t *testing.T) {
 	repo := newTestRepository(t)
 	repo.discovery()
@@ -294,6 +359,53 @@ func TestRemoveResourceByResourceAndVersion(t *testing.T) {
 	registry, err := ReadRegistry(root)
 	if err != nil || len(registry.Resources) != 1 || registry.Resources[0].Version != "v2" {
 		t.Fatalf("remove did not preserve the other version: %+v, %v", registry, err)
+	}
+}
+
+func TestConcurrentResourceRegistrations(t *testing.T) {
+	root := t.TempDir()
+	const count = 20
+	var wg sync.WaitGroup
+	errors := make(chan error, count)
+	for i := 0; i < count; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			resource := fmt.Sprintf("example.test/resource-%d", i)
+			errors <- registerResource(root, resource, "v1", "sha256:abc")
+		}(i)
+	}
+	wg.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	registry, err := ReadRegistry(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(registry.Resources) != count {
+		t.Fatalf("concurrent registrations lost updates: got %d, want %d", len(registry.Resources), count)
+	}
+}
+
+func TestResourcePathSkipsStagingDirectories(t *testing.T) {
+	root := t.TempDir()
+	installed := filepath.Join(root, "example.test", "shared", "1.0.0")
+	staging := filepath.Join(root, "example.test", "shared", ".dscpkg-install-staging")
+	for _, dir := range []string{installed, staging} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := ResourcePath(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != installed {
+		t.Fatalf("resource path includes staging directory: %q", result)
 	}
 }
 

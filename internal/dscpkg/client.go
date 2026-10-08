@@ -77,6 +77,16 @@ func (c *Client) httpClient() *http.Client {
 }
 
 func (c *Client) Install(resource, version, requestedPackageVersion string) (InstallResult, error) {
+	var result InstallResult
+	err := withPackagesLock(c.PackagesDir, func() error {
+		var err error
+		result, err = c.install(resource, version, requestedPackageVersion)
+		return err
+	})
+	return result, err
+}
+
+func (c *Client) install(resource, version, requestedPackageVersion string) (InstallResult, error) {
 	resolved, repo, err := c.resolve(resource, version, requestedPackageVersion)
 	if err != nil {
 		return InstallResult{}, err
@@ -85,7 +95,7 @@ func (c *Client) Install(resource, version, requestedPackageVersion string) (Ins
 	if err != nil {
 		return InstallResult{}, err
 	}
-	if err := registerResource(c.PackagesDir, resolved.Resource, resolved.Version, resolved.Digest); err != nil {
+	if err := registerResourceLocked(c.PackagesDir, resolved.Resource, resolved.Version, resolved.Digest); err != nil {
 		return InstallResult{}, fmt.Errorf("register resource: %w", err)
 	}
 	resourcePath, err := ResourcePath(c.PackagesDir, os.Getenv("DSC_RESOURCE_PATH"))
@@ -104,6 +114,16 @@ func (c *Client) Install(resource, version, requestedPackageVersion string) (Ins
 }
 
 func (c *Client) Update() ([]InstallResult, error) {
+	var results []InstallResult
+	err := withPackagesLock(c.PackagesDir, func() error {
+		var err error
+		results, err = c.update()
+		return err
+	})
+	return results, err
+}
+
+func (c *Client) update() ([]InstallResult, error) {
 	registry, err := ReadRegistry(c.PackagesDir)
 	if err != nil {
 		return nil, err
@@ -157,6 +177,16 @@ func (c *Client) Update() ([]InstallResult, error) {
 }
 
 func (c *Client) Cleanup() ([]string, error) {
+	var removed []string
+	err := withPackagesLock(c.PackagesDir, func() error {
+		var err error
+		removed, err = c.cleanup()
+		return err
+	})
+	return removed, err
+}
+
+func (c *Client) cleanup() ([]string, error) {
 	registry, err := ReadRegistry(c.PackagesDir)
 	if err != nil {
 		return nil, err
@@ -347,6 +377,15 @@ func (c *Client) discover(origin string) (*repository, error) {
 	if err != nil {
 		return nil, err
 	}
+	discovery.Resources, err = resolveURL(discoveryURL, discovery.Resources)
+	if err != nil {
+		return nil, err
+	}
+	discovery.Packages, err = resolveURL(discoveryURL, discovery.Packages)
+	if err != nil {
+		return nil, err
+	}
+	discovery.Catalog = catalogURL
 	repo := &repository{origin: base, discovery: discovery, catalogURL: catalogURL, policies: map[string]Policy{}}
 	if discovery.SigningPolicies != "" {
 		policyURL, err := resolveURL(discoveryURL, discovery.SigningPolicies)
@@ -369,8 +408,8 @@ func (c *Client) discover(origin string) (*repository, error) {
 			return nil, errors.New("signing policy document must contain a policies array")
 		}
 		for _, policy := range doc.Policies {
-			ns := strings.ToLower(policy.Namespace)
-			if ns == "" || len(strings.Split(ns, "/")) != 1 {
+			ns := strings.ToLower(strings.TrimSpace(policy.Namespace))
+			if !validSegment(ns) {
 				return nil, fmt.Errorf("invalid signing policy namespace %q", policy.Namespace)
 			}
 			policy.Namespace = ns

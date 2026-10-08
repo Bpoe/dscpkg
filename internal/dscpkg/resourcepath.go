@@ -50,7 +50,7 @@ func packageDirectories(packagesDir string) ([]string, error) {
 				return nil, err
 			}
 			for _, version := range versions {
-				if version.IsDir() {
+				if version.IsDir() && !strings.HasPrefix(version.Name(), ".") {
 					result = append(result, filepath.Join(packagesDir, namespace.Name(), pkg.Name(), version.Name()))
 				}
 			}

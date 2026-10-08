@@ -81,14 +81,14 @@ value after install or update:
 
 ```sh
 export DSC_RESOURCE_PATH="$(dscpkg env | sed 's/^DSC_RESOURCE_PATH=//')"
-dsc.exe get --resource Microsoft.GuestConfiguration/users
+dsc.exe resource get --resource Microsoft.GuestConfiguration/users
 ```
 
 For PowerShell:
 
 ```powershell
 $env:DSC_RESOURCE_PATH = ((dscpkg env) -replace '^DSC_RESOURCE_PATH=', '')
-dsc.exe get --resource Microsoft.GuestConfiguration/users
+dsc.exe resource get --resource Microsoft.GuestConfiguration/users
 ```
 
 `DSC_RESOURCE_PATH` uses the platform's path-list separator. `dscpkg env` preserves

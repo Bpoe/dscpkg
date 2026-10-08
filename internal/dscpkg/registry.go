@@ -70,6 +70,12 @@ func writeRegistry(packagesDir string, registry Registry) error {
 }
 
 func registerResource(packagesDir, resource, version, digest string) error {
+	return withPackagesLock(packagesDir, func() error {
+		return registerResourceLocked(packagesDir, resource, version, digest)
+	})
+}
+
+func registerResourceLocked(packagesDir, resource, version, digest string) error {
 	registry, err := ReadRegistry(packagesDir)
 	if err != nil {
 		return err
@@ -90,6 +96,12 @@ func registerResource(packagesDir, resource, version, digest string) error {
 }
 
 func RemoveResource(packagesDir, resource, version string) error {
+	return withPackagesLock(packagesDir, func() error {
+		return removeResourceLocked(packagesDir, resource, version)
+	})
+}
+
+func removeResourceLocked(packagesDir, resource, version string) error {
 	resource, err := normalizeResource(resource)
 	if err != nil {
 		return err
