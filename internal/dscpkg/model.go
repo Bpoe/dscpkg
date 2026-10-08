@@ -9,10 +9,10 @@ import (
 )
 
 type Discovery struct {
-	Catalog          string `json:"catalog.v1"`
-	Resources        string `json:"resources.v1"`
-	Packages         string `json:"packages.v1"`
-	SigningPolicies  string `json:"signing-policies.v1"`
+	Catalog         string `json:"catalog.v1"`
+	Resources       string `json:"resources.v1"`
+	Packages        string `json:"packages.v1"`
+	SigningPolicies string `json:"signing-policies.v1"`
 }
 
 type Catalog struct {
@@ -70,12 +70,12 @@ type policyDocument struct {
 }
 
 type packageResolution struct {
-	Resource string `json:"resource"`
-	Version string `json:"version"`
-	Package string `json:"package"`
+	Resource       string `json:"resource"`
+	Version        string `json:"version"`
+	Package        string `json:"package"`
 	PackageVersion string `json:"packageVersion"`
-	Digest string `json:"digest"`
-	Path string `json:"path"`
+	Digest         string `json:"digest"`
+	Path           string `json:"path"`
 }
 
 func normalizeResource(resource string) (string, error) {
