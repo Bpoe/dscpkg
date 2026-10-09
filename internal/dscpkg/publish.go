@@ -42,6 +42,9 @@ type publishArchive struct {
 
 // Publish writes repository metadata and, for a local archive, the archive itself.
 func Publish(options PublishOptions) error {
+	if strings.TrimSpace(options.Repository) == "" {
+		return errors.New("--repository is required")
+	}
 	packageName, err := normalizePackage(options.Package)
 	if err != nil {
 		return err

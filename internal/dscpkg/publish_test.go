@@ -17,6 +17,15 @@ import (
 const publishPackage = "example/resources"
 const publishResource = "example/users"
 
+func TestPublishRequiresRepository(t *testing.T) {
+	for _, repository := range []string{"", " \t\n "} {
+		err := Publish(PublishOptions{Repository: repository})
+		if err == nil || err.Error() != "--repository is required" {
+			t.Fatalf("Publish with repository %q returned %v, want --repository is required", repository, err)
+		}
+	}
+}
+
 func TestPublishInitializesAndIsIdempotent(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "wwwroot")
 	archive := filepath.Join(t.TempDir(), "resources.zip")
