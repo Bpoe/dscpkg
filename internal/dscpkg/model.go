@@ -12,7 +12,7 @@ type Discovery struct {
 	Catalog         string `json:"catalog.v1"`
 	Resources       string `json:"resources.v1"`
 	Packages        string `json:"packages.v1"`
-	SigningPolicies string `json:"signing-policies.v1"`
+	SigningPolicies string `json:"signing-policies.v1,omitempty"`
 }
 
 type Catalog struct {

@@ -97,6 +97,77 @@ existing paths outside the package cache and includes cached package-version
 directories. Add it to the environment used to launch DSC so DSC can discover
 the package's `*.dsc.resource.json` manifests.
 
+## Publish a repository
+
+`dscpkg publish` creates or updates the static repository metadata in a local
+directory. It does not create ZIP archives, commit files, upload content, or deploy
+a website. Supply each resource type and its resource version explicitly; resource
+versions are independent of package versions.
+
+Publish a local ZIP (the archive is validated and copied byte-for-byte into the
+repository):
+
+```sh
+dscpkg publish \
+  --repository ./wwwroot \
+  --package example/resources \
+  --package-version 1.0.0 \
+  --platform linux_amd64 \
+  --archive ./dist/resources.zip \
+  --resource example/users@1.0.0 \
+  --resource example/groups@1.0.0
+```
+
+Or publish metadata for an externally hosted ZIP. The publisher follows HTTP
+redirects, validates and hashes the downloaded archive, but does not copy it into
+`wwwroot`:
+
+```sh
+dscpkg publish \
+  --repository ./wwwroot \
+  --package example/resources \
+  --package-version 1.0.0 \
+  --platform linux_amd64 \
+  --archive-url https://github.com/example/dsc-resources/releases/download/v1.0.0/resources_linux_amd64.zip \
+  --resource example/users@1.0.0
+```
+
+The first publish initializes `.well-known/dsc.json`, `v1/catalog.json`,
+`v1/resources/`, and `v1/packages/`. Discovery uses relative URLs, so the same
+repository works at a site root and under a path prefix such as
+`https://example.github.io/dsc-resources/`. Subsequent publishes preserve unrelated
+resources, package versions, and platforms. A package identity/version/platform
+publication is immutable: identical repeats are safe, while changed archive bytes
+or a changed archive URL are rejected. Resource descriptors use content-addressed
+filenames, and the catalog is atomically replaced only after referenced files have
+been written.
+
+For GitHub Pages, keep `wwwroot/` in a Git repository and configure **Settings →
+Pages** to publish that directory (for example, choose **GitHub Actions** and make
+the Pages artifact from `wwwroot/`, or publish a branch folder containing the
+generated files). The archive in the external-URL example remains on GitHub
+Releases; it is not committed to the Pages repository. If Jekyll processing is
+enabled, add an empty `wwwroot/.nojekyll` file yourself so `.well-known/dsc.json`
+is served. The CLI does not commit, push, upload, or deploy anything.
+
+To test the exact same static files locally:
+
+```sh
+python3 -m http.server 8080 --directory ./wwwroot
+```
+
+In another terminal:
+
+```sh
+dscpkg install \
+  --repository http://localhost:8080 \
+  --resource example/users \
+  --version 1.0.0
+```
+
+The generated files can also be served without modification by IIS, Nginx, Apache,
+or another static HTTP host with suitable static-file configuration.
+
 ## Repository format and signing
 
 The client follows the discovery, catalog, resource descriptor, package descriptor,
@@ -112,6 +183,10 @@ namespace signing policy requires it. Policies may be published through
 material, so this implementation has no built-in namespace trust keys; repositories
 must supply policy keys for namespaces they require the client to verify. Policies
 from a future built-in table take precedence over repository policies.
+
+`dscpkg publish` does not sign metadata. It preserves existing discovery configuration
+and signature sidecars, but refuses changes that would invalidate a signed metadata
+file or publish unsigned metadata for a namespace with a required signing policy.
 
 The local `resources.json` file stores registered resource type, resource version,
 and the last processed descriptor digest. It intentionally does not store package
