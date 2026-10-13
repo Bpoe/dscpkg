@@ -22,7 +22,8 @@ dpkg-deb --extract "$deb" "$stage/deb"
 dpkg-deb --control "$deb" "$stage/control"
 [[ $(find "$stage/control" -type f ! -name control ! -name md5sums | wc -l) == 0 ]]
 mkdir "$stage/rpm"
-rpm2cpio "$rpm" | (cd "$stage/rpm" && cpio --quiet -idm --no-absolute-filenames)
+rpm2archive -n < "$rpm" > "$stage/rpm.tar"
+tar -xf "$stage/rpm.tar" -C "$stage/rpm"
 for format in deb rpm; do
     extracted="$stage/$format"
     diff <(printf '%s\n' usr/bin/dscpkg usr/share/doc/dscpkg/README.md usr/share/licenses/dscpkg/LICENSE | sort) \

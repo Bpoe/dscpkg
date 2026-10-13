@@ -263,8 +263,9 @@ toolchain); the project pins WiX SDK 7.0.0. Review the
 before using that toolchain; its build-time EULA setting is recorded in the
 WiX project. This does not change dscpkg's MIT license.
 
-Linux additionally requires Bash, tar, nFPM 2.47.0, `dpkg-deb`, `rpm`, `rpm2cpio`,
-and `cpio`. Install nFPM as a separate build tool, not a runtime module dependency:
+Linux additionally requires Bash, tar, nFPM 2.47.0, `dpkg-deb`, `rpm`, and
+`rpm2archive` (provided by Ubuntu's RPM tooling). Install nFPM as a separate build
+tool, not a runtime module dependency:
 
 ```sh
 go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
