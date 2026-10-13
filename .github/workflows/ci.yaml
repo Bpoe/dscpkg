@@ -2,7 +2,16 @@ name: CI
 
 on:
   push:
+    branches: ['**']
   pull_request:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -11,27 +20,50 @@ jobs:
   validate:
     name: Validate (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    env:
+      RELEASE_VERSION: ${{ inputs.version || 'v0.0.0' }}
+      BINARY: ${{ matrix.binary }}
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
+            artifact: linux
             binary: dscpkg
             test_args: -race
           - os: windows-latest
+            artifact: windows
             binary: dscpkg.exe
             test_args: ""
           - os: macos-latest
+            artifact: macos
             binary: dscpkg
             test_args: -race
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - name: Set package directories
+        shell: pwsh
+        run: |
+          "DIST_DIR=$(Join-Path $env:RUNNER_TEMP 'dscpkg-dist')" >> $env:GITHUB_ENV
+          "FIXTURE_DIR=$(Join-Path $env:RUNNER_TEMP 'dscpkg-upgrade-fixtures')" >> $env:GITHUB_ENV
+          "DSCPKG_LOG_DIRECTORY=$(Join-Path $env:RUNNER_TEMP 'dscpkg-package-logs')" >> $env:GITHUB_ENV
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Check formatting
         if: runner.os == 'Linux'
@@ -44,11 +76,95 @@ jobs:
       - name: Test
         run: go test ${{ matrix.test_args }} ./...
 
-      - name: Build
-        run: go build -trimpath -o ${{ matrix.binary }} ./cmd/dscpkg
+      - name: Test release safeguards
+        shell: pwsh
+        run: |
+          ./packaging/test-version.ps1
+          ./packaging/test-release.ps1
 
-      - uses: actions/upload-artifact@v4
+      - name: Install Linux packaging and validation tools
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm cpio shellcheck
+          mkdir -p "$RUNNER_TEMP/package-tools"
+          GOBIN="$RUNNER_TEMP/package-tools" go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          GOBIN="$RUNNER_TEMP/package-tools" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$RUNNER_TEMP/package-tools" >> "$GITHUB_PATH"
+
+      - name: Lint workflows and packaging scripts
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          actionlint
+          shellcheck packaging/linux/*.sh
+
+      - name: Build
+        shell: pwsh
+        env:
+          CGO_ENABLED: '0'
+        run: go build -trimpath -o $env:BINARY ./cmd/dscpkg
+
+      - name: Build and inspect release assets
+        shell: pwsh
+        run: |
+          ./packaging/build.ps1 -Version $env:RELEASE_VERSION -BinaryPath $env:BINARY -OutputDirectory $env:DIST_DIR
+          ./packaging/verify.ps1 -Version $env:RELEASE_VERSION -BinaryPath $env:BINARY -Directory $env:DIST_DIR
+
+      - name: Build isolated upgrade fixtures
+        if: runner.os != 'macOS'
+        shell: pwsh
+        run: ./packaging/test-fixtures.ps1 -OutputDirectory $env:FIXTURE_DIR
+
+      - name: Test Windows installer lifecycle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./packaging/windows/test-install.ps1 -Disposable -Version $env:RELEASE_VERSION `
+            -Directory $env:DIST_DIR -BinaryPath $env:BINARY -FixtureDirectory $env:FIXTURE_DIR `
+            -LogDirectory $env:DSCPKG_LOG_DIRECTORY
+
+      - name: Test DEB and RPM installer lifecycles
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir -p "$DSCPKG_LOG_DIRECTORY"
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+            bash packaging/linux/test-install.sh --disposable deb "$RELEASE_VERSION" \
+            "$DIST_DIR" "$PWD/dscpkg" "$FIXTURE_DIR" "$DSCPKG_LOG_DIRECTORY"
+          docker run --rm -e GITHUB_ACTIONS -e RUNNER_ENVIRONMENT \
+            -v "$PWD:/src:ro" -v "$DIST_DIR:/assets:ro" -v "$FIXTURE_DIR:/fixtures:ro" \
+            -v "$DSCPKG_LOG_DIRECTORY:/logs" fedora:44 \
+            bash -c 'dnf -y install diffutils && exec bash /src/packaging/linux/test-install.sh --disposable rpm "$@"' \
+            bash "$RELEASE_VERSION" /assets /src/dscpkg /fixtures /logs
+
+      - name: Recheck tested asset checksums
+        shell: pwsh
+        run: |
+          . ./packaging/common.ps1
+          $platform = Get-BinaryPlatform $env:BINARY
+          Assert-Checksums $env:DIST_DIR @(Get-AssetNames $env:RELEASE_VERSION $platform)
+
+      - name: Upload installer diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dscpkg-install-logs-${{ matrix.artifact }}
+          path: ${{ env.DSCPKG_LOG_DIRECTORY }}
+          overwrite: true
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: dscpkg-${{ runner.os }}-${{ runner.arch }}
           path: ${{ matrix.binary }}
           if-no-files-found: error
+          overwrite: true
+
+      - name: Upload verified release payloads
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dscpkg-release-${{ matrix.artifact }}
+          path: ${{ env.DIST_DIR }}/*
+          if-no-files-found: error
+          overwrite: true

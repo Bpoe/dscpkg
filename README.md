@@ -208,3 +208,128 @@ The GitHub Actions workflow runs formatting, vetting, tests (with race detection
 Linux and macOS), and builds on Linux, Windows, and macOS. It uploads one executable artifact
 for each runner operating system. Go build caching is enabled through
 `actions/setup-go`.
+
+CI also builds and inspects release archives and native installers. Windows MSI,
+Ubuntu DEB, and containerized Fedora RPM tests cover fresh installation,
+reinstallation/repair, upgrade replacement using isolated fixtures, uninstall,
+and preservation of downloaded resources and caches. Windows checks system PATH
+registration/removal and rejects downgrades. Installer tests run only on
+disposable GitHub-hosted runners, never on a developer workstation.
+
+## Release downloads and installation
+
+Releases include Linux AMD64 and Windows AMD64 archives, a macOS archive for the
+native architecture of the macOS CI runner, Windows MSI, Linux DEB/RPM, and
+`SHA256SUMS`. macOS filenames use Go's `darwin` platform name and the actual
+`amd64` or `arm64` build architecture. Extract an archive and put its `bin`
+directory on PATH, or use the appropriate native installer:
+
+```sh
+sudo apt install ./dscpkg_1.2.3_amd64.deb
+# On an RPM-based distribution:
+sudo dnf install ./dscpkg-1.2.3-1.x86_64.rpm
+```
+
+On Windows, run `dscpkg-v1.2.3-windows-amd64.msi` as administrator, or use:
+
+```powershell
+msiexec /i dscpkg-v1.2.3-windows-amd64.msi /qn /norestart
+```
+
+The MSI installs to `%ProgramFiles%\dscpkg` and adds that directory to the system
+PATH; open a new terminal after installation. DEB/RPM install `/usr/bin/dscpkg`.
+These are machine-wide CLI installations, not services. No DSC runtime is
+bundled or required to install dscpkg.
+
+Use Installed apps on Windows, `sudo apt remove dscpkg`, or `sudo dnf remove
+dscpkg` to uninstall. Upgrades replace the executable; uninstall removes the
+executable and its installer-managed PATH entry, but never deletes users'
+downloaded resource packages, registries, or caches. Linux follows the native
+package manager's version ordering; MSI blocks downgrades.
+
+Packages are unsigned. Verify downloaded files against the release's
+`SHA256SUMS` before installation. On Linux, use
+`sha256sum --check --ignore-missing SHA256SUMS`; on macOS, compare
+`shasum -a 256 <download>`; on Windows, compare
+`Get-FileHash -Algorithm SHA256 <download>` with its manifest entry. Checksums
+detect corruption but do not replace trusted download provenance or signing.
+
+## Building release packages
+
+Packaging requires PowerShell 7.2 or later, Git, Go, and native platform tools.
+Windows additionally requires the .NET 8 SDK/runtime (or a compatible installed
+toolchain); the project pins WiX SDK 7.0.0. Review the
+[WiX license and fee requirements](https://docs.firegiant.com/wix/)
+before using that toolchain; its build-time EULA setting is recorded in the
+WiX project. This does not change dscpkg's MIT license.
+
+Linux additionally requires Bash, tar, nFPM 2.47.0, `dpkg-deb`, `rpm`, `rpm2cpio`,
+and `cpio`. Install nFPM as a separate build tool, not a runtime module dependency:
+
+```sh
+go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+# Ensure Go's bin directory is on PATH. Go may download nFPM's required toolchain.
+```
+
+On each native platform, build one executable with CGO disabled and pass that
+same binary to the packager. The output directory must be empty. For example,
+in PowerShell on Windows:
+
+```powershell
+$env:CGO_ENABLED = '0'
+go build -trimpath -o dscpkg.exe ./cmd/dscpkg
+./packaging/build.ps1 -Version v1.2.3 -BinaryPath ./dscpkg.exe -OutputDirectory ./dist
+./packaging/verify.ps1 -Version v1.2.3 -BinaryPath ./dscpkg.exe -Directory ./dist
+```
+
+On Linux or macOS, use `CGO_ENABLED=0 go build -trimpath -o dscpkg ./cmd/dscpkg`,
+then invoke the same scripts with `pwsh -NoProfile -File`, `-BinaryPath ./dscpkg`,
+and the other arguments above. Inspection extracts packages without installing
+the product. Windows MSI binding/ICE validation requires a Windows environment
+whose installer policy permits validation; do not disable validation to produce
+a release.
+
+`packaging/test-version.ps1` tests tag/version boundaries.
+`packaging/test-release.ps1` tests release safeguards using an isolated Git
+repository and mocked GitHub API, without creating real tags or releases.
+CI uses `v0.0.0` for non-release package checks. Separate `v1.0.0`/`v1.0.1`
+fixtures exercise upgrades even before the first release; they are never shipped.
+
+## Creating a draft release
+
+After the workflow changes are merged, push a stable `vX.Y.Z` tag pointing to a
+reviewed commit already in `main`:
+
+```sh
+git fetch origin
+git tag v1.2.3 <reviewed-commit>
+git push origin refs/tags/v1.2.3
+```
+
+The [release workflow](.github/workflows/release.yaml) validates the tag and runs
+reusable CI on its exact commit. Lightweight and annotated tags are supported.
+Tags must have exactly three numeric components without leading zeroes; RC tags,
+build metadata, and other prereleases are unsupported. MSI uses the direct
+`X.Y.Z` version: major/minor must be at most 255, and patch at most 65535. These
+limits apply to the entire release, not just its MSI.
+
+Every platform's archive and installer contain the same executable bytes. After
+all native checks pass, the final job downloads those exact tested assets from
+the same workflow run, verifies the expected file sets and SHA-256 checksums,
+and rechecks the remote tag. It creates a **draft normal release**, with generated
+release notes and a combined `SHA256SUMS`, not a published release or prerelease.
+Review its assets, source commit, and workflow results in **Releases**, then
+publish manually. The workflow never creates or moves a tag.
+
+An existing release or draft stops the run rather than being overwritten.
+Authentication/API failures are errors, not evidence that a release is absent.
+If creation partially fails, inspect the draft and uploaded assets; remove an
+incomplete draft manually only after review before retrying the unchanged tag.
+For source fixes, merge the fix and push a new version tag instead of moving one.
+
+Re-run failed jobs while the original artifacts remain available. A rebuilt
+platform must pass its complete package checks again; never skip them to make
+a draft. If artifacts have expired, re-run the whole workflow. Installer failure
+diagnostics are available as `dscpkg-install-logs-<platform>` artifacts. There is
+no automatic publication, signing/notarization, macOS PKG, package repository,
+SBOM, or attestation in this flow.

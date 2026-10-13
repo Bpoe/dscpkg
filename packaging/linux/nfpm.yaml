@@ -1,0 +1,31 @@
+name: dscpkg
+arch: amd64
+platform: linux
+version: ${VERSION}
+maintainer: dscpkg contributors <Bpoe@users.noreply.github.com>
+description: CLI for acquiring DSC v3 resource packages from static repositories
+homepage: https://github.com/Bpoe/dscpkg
+license: MIT
+contents:
+  - src: ${BINARY_PATH}
+    dst: /usr/bin/dscpkg
+    expand: true
+    file_info:
+      mode: 0755
+      owner: root
+      group: root
+  - src: README.md
+    dst: /usr/share/doc/dscpkg/README.md
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+  - src: LICENSE
+    dst: /usr/share/licenses/dscpkg/LICENSE
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
+overrides:
+  rpm:
+    release: "1"
