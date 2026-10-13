@@ -48,7 +48,8 @@ preserved() {
     for file in "${sentinels[@]}"; do [[ $(cat "$file") == preserve-me ]]; done
 }
 verify_install() {
-    [[ $(command -v dscpkg) == /usr/bin/dscpkg ]]
+    # Merged bin/sbin layouts may expose the installed file through another PATH alias.
+    [[ $(command -v dscpkg) -ef /usr/bin/dscpkg ]]
     cmp "$1" /usr/bin/dscpkg
     dscpkg publish -h
     if [[ $format == deb ]]; then
