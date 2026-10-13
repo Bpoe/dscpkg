@@ -23,12 +23,9 @@ $originalPath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
 $processPath = $env:PATH
 $sentinelPath = Join-Path $env:SystemDrive 'dscpkg-unrelated-path-entry'
 $baselinePath = "$originalPath;$sentinelPath"
-[Environment]::SetEnvironmentVariable('Path', $baselinePath, 'Machine')
 $cache = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'dscpkg/packages'
 if (Test-Path -LiteralPath $cache) { throw 'Test cache already exists; refusing to overwrite it.' }
-New-Item -ItemType Directory -Path "$cache/.dscpkg", "$cache/test-resource" -Force | Out-Null
 $sentinels = @("$cache/resources.json", "$cache/.dscpkg/metadata", "$cache/test-resource/resource")
-foreach ($path in $sentinels) { Set-Content -LiteralPath $path -Value 'preserve-me' }
 $installed = $null
 
 function Assert-Preserved {
@@ -61,6 +58,9 @@ function Remove-TestProduct {
 }
 
 try {
+    [Environment]::SetEnvironmentVariable('Path', $baselinePath, 'Machine')
+    New-Item -ItemType Directory -Path "$cache/.dscpkg", "$cache/test-resource" -Force | Out-Null
+    foreach ($path in $sentinels) { Set-Content -LiteralPath $path -Value 'preserve-me' }
     $candidate = (Resolve-Path -LiteralPath (Join-Path $Directory "dscpkg-$Version-windows-amd64.msi")).Path
     Invoke-Msi '/i' $candidate (Join-Path $logs 'install-release.log')
     $installed = $candidate

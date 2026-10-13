@@ -158,3 +158,5 @@ try {
     Remove-Item -LiteralPath Function:\gh
     Remove-Variable -Name DscpkgReleaseTestState -Scope Global
 }
+# GitHub's PowerShell wrapper otherwise returns the last intentionally failed git command.
+exit 0
