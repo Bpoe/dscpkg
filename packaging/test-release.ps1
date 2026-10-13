@@ -68,6 +68,34 @@ function New-TestAssets {
 New-Item -ItemType Directory -Path $stage | Out-Null
 Push-Location $stage
 try {
+    if ($IsWindows) {
+        $msi = Join-Path $stage 'table-fixture.msi'
+        $installer = New-Object -ComObject WindowsInstaller.Installer
+        $database = $installer.OpenDatabase($msi, 3)
+        try {
+            foreach ($query in @(
+                'CREATE TABLE `Property` (`Property` CHAR(72) NOT NULL, `Value` CHAR(0) PRIMARY KEY `Property`)',
+                'INSERT INTO `Property` (`Property`, `Value`) VALUES (''ProductName'', ''dscpkg'')'
+            )) {
+                $view = $database.OpenView($query)
+                try { $view.Execute() | Out-Null }
+                finally {
+                    $view.Close() | Out-Null
+                    [Runtime.InteropServices.Marshal]::FinalReleaseComObject($view) | Out-Null
+                }
+            }
+            $database.Commit() | Out-Null
+        } finally {
+            foreach ($object in @($database, $installer)) {
+                [Runtime.InteropServices.Marshal]::FinalReleaseComObject($object) | Out-Null
+            }
+        }
+        $rows = @(Read-MsiTable $msi 'SELECT `Property`, `Value` FROM `Property`' @('Name', 'Value'))
+        Assert-Equal $rows.Count 1 'MSI table reader must not emit COM null results'
+        Assert-Equal $rows[0].Value 'dscpkg' 'MSI table value'
+        $empty = @(Read-MsiTable $msi 'SELECT `Value` FROM `Property` WHERE `Property` = ''Absent''' @('Value'))
+        Assert-Equal $empty.Count 0 'Empty MSI table result'
+    }
     Invoke-Checked git @('init', '--quiet')
     Invoke-Checked git @('config', 'user.name', 'Release tests')
     Invoke-Checked git @('config', 'user.email', 'release-tests@example.invalid')

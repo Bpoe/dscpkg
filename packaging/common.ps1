@@ -95,7 +95,7 @@ function Read-MsiTable {
     $database = $installer.OpenDatabase($Path, 0)
     $view = $database.OpenView($Query)
     try {
-        $view.Execute()
+        $view.Execute() | Out-Null
         while ($record = $view.Fetch()) {
             $row = [ordered]@{}
             for ($i = 0; $i -lt $Columns.Count; $i++) {
@@ -105,7 +105,7 @@ function Read-MsiTable {
             [Runtime.InteropServices.Marshal]::FinalReleaseComObject($record) | Out-Null
         }
     } finally {
-        $view.Close()
+        $view.Close() | Out-Null
         foreach ($object in @($view, $database, $installer)) {
             [Runtime.InteropServices.Marshal]::FinalReleaseComObject($object) | Out-Null
         }
