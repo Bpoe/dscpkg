@@ -51,6 +51,8 @@ verify_install() {
     cmp "$1" /usr/bin/dscpkg
     dscpkg publish -h
     if [[ $format == deb ]]; then
+        # dpkg-query, not Bash, expands this field.
+        # shellcheck disable=SC2016
         [[ $(dpkg-query -W -f '${Version}' dscpkg) == "$2" ]]
     else
         [[ $(rpm -q --qf '%{VERSION}' dscpkg) == "$2" ]]

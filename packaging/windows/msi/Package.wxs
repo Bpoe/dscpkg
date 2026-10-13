@@ -5,7 +5,7 @@
     <SummaryInformation Description="dscpkg $(var.ReleaseVersion) Windows x64 installer" />
     <!-- Remove the old unversioned Go executable inside the upgrade transaction. -->
     <MajorUpgrade DowngradeErrorMessage="A newer version of dscpkg is already installed."
-                  AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize" />
+                  Schedule="afterInstallInitialize" />
     <MediaTemplate EmbedCab="yes" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="ARPCOMMENTS" Value="dscpkg $(var.ReleaseVersion)" />

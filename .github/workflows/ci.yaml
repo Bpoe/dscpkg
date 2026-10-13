@@ -68,7 +68,9 @@ jobs:
       - name: Check formatting
         if: runner.os == 'Linux'
         shell: bash
-        run: gofmt -w $(git ls-files '*.go') && git diff --exit-code -- '*.go'
+        run: |
+          git ls-files -z '*.go' | xargs -0 -r gofmt -w
+          git diff --exit-code -- '*.go'
 
       - name: Vet
         run: go vet ./...
