@@ -46,13 +46,14 @@ foreach ($table in @('CustomAction', 'ServiceInstall', 'ServiceControl')) {
 }
 
 $stage = Join-Path ([IO.Path]::GetTempPath()) ("dscpkg-inspect-" + [guid]::NewGuid())
+$image = Join-Path $stage 'image'
 $logPath = Join-Path $stage 'extract.log'
 $verified = $false
 try {
     New-Item -ItemType Directory -Path $stage | Out-Null
     # Administrative extraction copies the payload; it does not install the product.
-    Invoke-Msi '/a' $msi $logPath @("TARGETDIR=`"$stage/image`"")
-    $binaries = @(Get-ChildItem -LiteralPath "$stage/image" -Recurse -File -Filter dscpkg.exe)
+    Invoke-Msi '/a' $msi $logPath @("TARGETDIR=`"$image`"")
+    $binaries = @(Get-ChildItem -LiteralPath $image -Recurse -File -Filter dscpkg.exe)
     Assert-Equal $binaries.Count 1 'Extracted MSI executable count'
     Assert-Equal (Get-SHA256 $binaries[0].FullName) (Get-SHA256 $BinaryPath) 'MSI executable hash'
     $repo = [IO.Path]::GetFullPath("$PSScriptRoot/../../..")

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "ERROR %s:%s: %s\n" "$0" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 [[ $# == 3 ]] || { echo "Usage: $0 VERSION BINARY OUTPUT_DIRECTORY" >&2; exit 1; }
 root=$(cd "$(dirname "$0")/../.." && pwd)

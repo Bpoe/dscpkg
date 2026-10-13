@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "ERROR %s:%s: %s\n" "$0" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 [[ $# == 3 ]] || { echo "Usage: $0 VERSION BINARY OUTPUT_DIRECTORY" >&2; exit 1; }
 root=$(cd "$(dirname "$0")/../.." && pwd)
@@ -21,7 +22,7 @@ dpkg-deb --extract "$deb" "$stage/deb"
 dpkg-deb --control "$deb" "$stage/control"
 [[ $(find "$stage/control" -type f ! -name control ! -name md5sums | wc -l) == 0 ]]
 mkdir "$stage/rpm"
-rpm2cpio "$rpm" | (cd "$stage/rpm" && cpio --quiet -idm)
+rpm2cpio "$rpm" | (cd "$stage/rpm" && cpio --quiet -idm --no-absolute-filenames)
 for format in deb rpm; do
     extracted="$stage/$format"
     diff <(printf '%s\n' usr/bin/dscpkg usr/share/doc/dscpkg/README.md usr/share/licenses/dscpkg/LICENSE | sort) \

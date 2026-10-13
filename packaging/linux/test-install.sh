@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
+trap 'printf "ERROR %s:%s: %s\n" "$0" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 if [[ $# != 7 || $1 != --disposable || ${GITHUB_ACTIONS:-} != true ||
       ${RUNNER_ENVIRONMENT:-} != github-hosted || $EUID != 0 ]]; then
