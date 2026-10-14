@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate release tag and source
+        id: source
+        shell: pwsh
+        env:
+          VERSION: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $commit = ./packaging/release.ps1 -Operation Preflight -Version $env:VERSION `
+            -Commit $env:SOURCE_SHA -Repository $env:GH_REPO
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+  build:
+    needs: preflight
+    uses: ./.github/workflows/ci.yaml
+    with:
+      version: ${{ github.ref_name }}
+      commit: ${{ needs.preflight.outputs.commit }}
+
+  draft:
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.preflight.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dscpkg-release-linux
+          path: dist/linux
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dscpkg-release-windows
+          path: dist/windows
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dscpkg-release-macos
+          path: dist/macos
+      - name: Verify tested assets and create an unpublished draft
+        shell: pwsh
+        env:
+          VERSION: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ needs.preflight.outputs.commit }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          ./packaging/release.ps1 -Operation Draft -Version $env:VERSION `
+            -Commit $env:SOURCE_SHA -Repository $env:GH_REPO -AssetDirectory ./dist

@@ -1,0 +1,33 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="dscpkg" Manufacturer="dscpkg contributors"
+           Version="$(var.ProductVersion)" UpgradeCode="{5E40E180-FD44-4F09-AB2F-09D02D59CE8A}"
+           Scope="perMachine" InstallerVersion="500" Language="1033">
+    <SummaryInformation Description="dscpkg $(var.ReleaseVersion) Windows x64 installer" />
+    <!-- Remove the old unversioned Go executable inside the upgrade transaction. -->
+    <MajorUpgrade DowngradeErrorMessage="A newer version of dscpkg is already installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="dscpkg $(var.ReleaseVersion)" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="dscpkg">
+        <Component Id="Executable" Guid="*" Bitness="always64">
+          <File Id="ExecutableFile" Source="$(var.BinaryPath)" Name="dscpkg.exe" KeyPath="yes" />
+          <Environment Id="MachinePath" Name="PATH" Value="[INSTALLFOLDER]"
+                       Action="set" Part="last" System="yes" Permanent="no" />
+        </Component>
+        <Component Id="License" Guid="*" Bitness="always64">
+          <File Source="$(sys.SOURCEFILEDIR)..\..\..\LICENSE" KeyPath="yes" />
+        </Component>
+        <Component Id="Readme" Guid="*" Bitness="always64">
+          <File Source="$(sys.SOURCEFILEDIR)..\..\..\README.md" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Complete" Title="dscpkg" Level="1">
+      <ComponentRef Id="Executable" />
+      <ComponentRef Id="License" />
+      <ComponentRef Id="Readme" />
+    </Feature>
+  </Package>
+</Wix>
