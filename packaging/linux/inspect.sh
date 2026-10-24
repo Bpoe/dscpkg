@@ -4,16 +4,18 @@ trap 'printf "ERROR %s:%s: %s\n" "$0" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 [[ $# == 3 ]] || { echo "Usage: $0 VERSION BINARY OUTPUT_DIRECTORY" >&2; exit 1; }
 root=$(cd "$(dirname "$0")/../.." && pwd)
+# shellcheck source=packaging/linux/architecture.sh
+source "$root/packaging/linux/architecture.sh"
 version=$(pwsh -NoProfile -File "$root/packaging/version.ps1" -Version "$1")
 binary=$(realpath "$2")
 output=$(realpath "$3")
-deb="$output/dscpkg_${version}_amd64.deb"
-rpm="$output/dscpkg-${version}-1.x86_64.rpm"
+deb="$output/dscpkg_${version}_${PACKAGE_ARCH}.deb"
+rpm="$output/dscpkg-${version}-1.$RPM_ARCH.rpm"
 [[ $(dpkg-deb -f "$deb" Package) == dscpkg ]]
 [[ $(dpkg-deb -f "$deb" Version) == "$version" ]]
-[[ $(dpkg-deb -f "$deb" Architecture) == amd64 ]]
+[[ $(dpkg-deb -f "$deb" Architecture) == "$PACKAGE_ARCH" ]]
 [[ -z $(dpkg-deb -f "$deb" Depends) ]]
-[[ $(rpm -qp --qf '%{NAME} %{VERSION} %{RELEASE} %{ARCH}' "$rpm") == "dscpkg $version 1 x86_64" ]]
+[[ $(rpm -qp --qf '%{NAME} %{VERSION} %{RELEASE} %{ARCH}' "$rpm") == "dscpkg $version 1 $RPM_ARCH" ]]
 [[ -z $(rpm -qp --scripts "$rpm") ]]
 rpm --checksig "$rpm"
 stage=$(mktemp -d)

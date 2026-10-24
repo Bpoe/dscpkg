@@ -7,6 +7,9 @@ if [[ $# != 7 || $1 != --disposable || ${GITHUB_ACTIONS:-} != true ||
     echo "Usage (disposable GitHub-hosted runner/container only): $0 --disposable deb|rpm VERSION ASSETS BINARY FIXTURES LOGS" >&2
     exit 1
 fi
+root=$(cd "$(dirname "$0")/../.." && pwd)
+# shellcheck source=packaging/linux/architecture.sh
+source "$root/packaging/linux/architecture.sh"
 format=$2
 version=${3#v}
 assets=$(realpath "$4")
@@ -33,8 +36,8 @@ for file in "${sentinels[@]}"; do printf 'preserve-me\n' > "$file"; done
 installed=false
 
 package_path() {
-    if [[ $format == deb ]]; then printf '%s/dscpkg_%s_amd64.deb' "$1" "$2"
-    else printf '%s/dscpkg-%s-1.x86_64.rpm' "$1" "$2"; fi
+    if [[ $format == deb ]]; then printf '%s/dscpkg_%s_%s.deb' "$1" "$2" "$PACKAGE_ARCH"
+    else printf '%s/dscpkg-%s-1.%s.rpm' "$1" "$2" "$RPM_ARCH"; fi
 }
 install_package() {
     if [[ $format == deb ]]; then dpkg -i "$1"; else rpm -U --replacepkgs "$1"; fi

@@ -61,7 +61,7 @@ if ($Operation -eq 'Preflight') {
 if (-not $AssetDirectory) { throw 'Draft creation requires AssetDirectory.' }
 $downloads = (Resolve-Path -LiteralPath $AssetDirectory).Path
 $directories = @(Get-ChildItem -LiteralPath $downloads -Force)
-Assert-Equal (($directories.Name | Sort-Object) -join ',') 'linux,macos,windows' 'Downloaded platform directories'
+Assert-Equal (($directories.Name | Sort-Object) -join ',') 'linux,linux-arm64,macos,windows' 'Downloaded platform directories'
 foreach ($directory in $directories) {
     if (-not $directory.PSIsContainer) { throw "Expected a platform directory: $($directory.Name)" }
 }
@@ -72,6 +72,7 @@ Assert-Equal $macArchives.Count 1 'macOS archive count'
 $macPlatform = [regex]::Match($macArchives[0].Name, $macPattern).Groups[1].Value
 $platforms = @(
     @{ Directory = 'linux'; Platform = 'linux-amd64' },
+    @{ Directory = 'linux-arm64'; Platform = 'linux-arm64' },
     @{ Directory = 'windows'; Platform = 'windows-amd64' },
     @{ Directory = 'macos'; Platform = $macPlatform }
 )

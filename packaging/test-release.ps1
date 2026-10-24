@@ -3,7 +3,7 @@ $releaseScript = Join-Path $PSScriptRoot 'release.ps1'
 $stage = Join-Path ([IO.Path]::GetTempPath()) ("dscpkg-release-test-" + [guid]::NewGuid())
 $global:DscpkgReleaseTestState = @{
     Commit = ''; TagObject = $null; Releases = '[[]]'; FailAPI = $false
-    Created = 0; Assets = @(); Arguments = @()
+    Created = 0; Assets = @(); Arguments = @(); ChecksumLines = @()
 }
 
 function global:gh {
@@ -32,6 +32,9 @@ function global:gh {
         $state.Arguments = $Arguments
         $state.Assets = @($Arguments | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
             ForEach-Object { Split-Path $_ -Leaf })
+        $manifest = @($Arguments | Where-Object { (Split-Path $_ -Leaf) -ceq 'SHA256SUMS' })
+        Assert-Equal $manifest.Count 1 'Combined checksum manifest count'
+        $state.ChecksumLines = @(Get-Content -LiteralPath $manifest[0])
         return
     }
     throw "Unexpected gh command: $Arguments"
@@ -54,6 +57,7 @@ function New-TestAssets {
     param([string] $Directory)
     foreach ($entry in @(
         @{ Name = 'linux'; Platform = 'linux-amd64' },
+        @{ Name = 'linux-arm64'; Platform = 'linux-arm64' },
         @{ Name = 'windows'; Platform = 'windows-amd64' },
         @{ Name = 'macos'; Platform = 'darwin-arm64' }
     )) {
@@ -142,7 +146,18 @@ try {
     New-TestAssets $downloads
     & $releaseScript -Operation Draft @parameters -AssetDirectory $downloads
     Assert-Equal $global:DscpkgReleaseTestState.Created 1 'Draft creation count'
-    Assert-Equal $global:DscpkgReleaseTestState.Assets.Count 7 'Draft asset count'
+    $expectedAssets = @(
+        'dscpkg-v1.2.3-linux-amd64.tar.gz', 'dscpkg_1.2.3_amd64.deb', 'dscpkg-1.2.3-1.x86_64.rpm',
+        'dscpkg-v1.2.3-linux-arm64.tar.gz', 'dscpkg_1.2.3_arm64.deb', 'dscpkg-1.2.3-1.aarch64.rpm',
+        'dscpkg-v1.2.3-windows-amd64.zip', 'dscpkg-v1.2.3-windows-amd64.msi',
+        'dscpkg-v1.2.3-darwin-arm64.tar.gz', 'SHA256SUMS'
+    )
+    Assert-Equal (($global:DscpkgReleaseTestState.Assets | Sort-Object) -join ',') `
+        (($expectedAssets | Sort-Object) -join ',') 'Draft assets for both Linux architectures'
+    $expectedChecksums = @(Get-ChildItem -LiteralPath $downloads -Recurse -File -Filter SHA256SUMS |
+        ForEach-Object { Get-Content -LiteralPath $_.FullName })
+    Assert-Equal (($global:DscpkgReleaseTestState.ChecksumLines | Sort-Object) -join "`n") `
+        (($expectedChecksums | Sort-Object) -join "`n") 'Combined platform checksums'
     foreach ($flag in @('--draft', '--verify-tag', '--generate-notes')) {
         if ($global:DscpkgReleaseTestState.Arguments -cnotcontains $flag) { throw "Missing release flag: $flag" }
     }
@@ -155,6 +170,22 @@ try {
     $global:DscpkgReleaseTestState.FailAPI = $true
     Assert-Rejected { & $releaseScript -Operation Draft @parameters -AssetDirectory $downloads } 'gh failed'
     $global:DscpkgReleaseTestState.FailAPI = $false
+
+    $armDirectory = Join-Path $downloads 'linux-arm64'
+    $savedArmDirectory = Join-Path $stage 'saved-linux-arm64'
+    Move-Item -LiteralPath $armDirectory -Destination $savedArmDirectory
+    Assert-Rejected { & $releaseScript -Operation Draft @parameters -AssetDirectory $downloads } 'Downloaded platform directories'
+    Move-Item -LiteralPath $savedArmDirectory -Destination $armDirectory
+    foreach ($name in @(Get-AssetNames 'v1.2.3' 'linux-arm64')) {
+        $armAsset = Join-Path $armDirectory $name
+        $armBytes = [IO.File]::ReadAllBytes($armAsset)
+        Add-Content -LiteralPath $armAsset -Value corrupt
+        Assert-Rejected { & $releaseScript -Operation Draft @parameters -AssetDirectory $downloads } 'Checksum for'
+        [IO.File]::WriteAllBytes($armAsset, $armBytes)
+        Remove-Item -LiteralPath $armAsset
+        Assert-Rejected { & $releaseScript -Operation Draft @parameters -AssetDirectory $downloads } 'Files in'
+        [IO.File]::WriteAllBytes($armAsset, $armBytes)
+    }
 
     $extra = Join-Path $downloads 'linux/unexpected.txt'
     Set-Content -LiteralPath $extra -Value extra

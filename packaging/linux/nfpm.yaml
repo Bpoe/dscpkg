@@ -1,5 +1,5 @@
 name: dscpkg
-arch: amd64
+arch: ${PACKAGE_ARCH}
 platform: linux
 version: ${VERSION}
 maintainer: dscpkg contributors <Bpoe@users.noreply.github.com>

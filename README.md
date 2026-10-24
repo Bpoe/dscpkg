@@ -205,21 +205,21 @@ go build -trimpath -o dist/dscpkg ./cmd/dscpkg
 ```
 
 The GitHub Actions workflow runs formatting, vetting, tests (with race detection on
-Linux and macOS), and builds on Linux, Windows, and macOS. It uploads one executable artifact
-for each runner operating system. Go build caching is enabled through
-`actions/setup-go`.
+Linux and macOS), and builds on Linux AMD64/ARM64, Windows, and macOS. It uploads
+one executable artifact for each runner operating system and architecture.
+Go build caching is enabled through `actions/setup-go`.
 
-CI also builds and inspects release archives and native installers. Windows MSI,
-Ubuntu DEB, and containerized Fedora RPM tests cover fresh installation,
-reinstallation/repair, upgrade replacement using isolated fixtures, uninstall,
-and preservation of downloaded resources and caches. Windows checks system PATH
-registration/removal and rejects downgrades. Installer tests run only on
+CI also builds and inspects release archives and native installers. Windows MSI
+tests and Linux AMD64/ARM64 Ubuntu DEB and containerized Fedora RPM tests cover
+fresh installation, reinstallation/repair, upgrade replacement using isolated
+fixtures, uninstall, and preservation of downloaded resources and caches.
+Windows checks system PATH registration/removal and rejects downgrades. Installer tests run only on
 disposable GitHub-hosted runners, never on a developer workstation.
 
 ## Release downloads and installation
 
-Releases include Linux AMD64 and Windows AMD64 archives, a macOS archive for the
-native architecture of the macOS CI runner, Windows MSI, Linux DEB/RPM, and
+Releases include Linux AMD64/ARM64 and Windows AMD64 archives, a macOS archive for the
+native architecture of the macOS CI runner, Windows MSI, Linux AMD64/ARM64 DEB/RPM, and
 `SHA256SUMS`. macOS filenames use Go's `darwin` platform name and the actual
 `amd64` or `arm64` build architecture. Extract an archive and put its `bin`
 directory on PATH, or use the appropriate native installer:
@@ -229,6 +229,9 @@ sudo apt install ./dscpkg_1.2.3_amd64.deb
 # On an RPM-based distribution:
 sudo dnf install ./dscpkg-1.2.3-1.x86_64.rpm
 ```
+
+On ARM64 Linux, use `dscpkg_1.2.3_arm64.deb` or
+`dscpkg-1.2.3-1.aarch64.rpm` instead.
 
 On Windows, run `dscpkg-v1.2.3-windows-amd64.msi` as administrator, or use:
 
@@ -272,9 +275,9 @@ go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
 # Ensure Go's bin directory is on PATH. Go may download nFPM's required toolchain.
 ```
 
-On each native platform, build one executable with CGO disabled and pass that
-same binary to the packager. The output directory must be empty. For example,
-in PowerShell on Windows:
+On each native platform (including native AMD64 or ARM64 Linux), build one
+executable with CGO disabled and pass that same binary to the packager. The output
+directory must be empty. For example, in PowerShell on Windows:
 
 ```powershell
 $env:CGO_ENABLED = '0'
