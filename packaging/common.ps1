@@ -25,10 +25,12 @@ function Get-AssetNames {
     param([string] $Version, [string] $Platform)
     $packageVersion = & "$PSScriptRoot/version.ps1" -Version $Version
     switch -Regex -CaseSensitive ($Platform) {
-        '^linux-amd64$' {
-            "dscpkg-$Version-linux-amd64.tar.gz"
-            "dscpkg_${packageVersion}_amd64.deb"
-            "dscpkg-${packageVersion}-1.x86_64.rpm"
+        '^linux-(amd64|arm64)$' {
+            $arch = $Matches[1]
+            $rpmArch = if ($arch -eq 'arm64') { 'aarch64' } else { 'x86_64' }
+            "dscpkg-$Version-$Platform.tar.gz"
+            "dscpkg_${packageVersion}_${arch}.deb"
+            "dscpkg-${packageVersion}-1.$rpmArch.rpm"
         }
         '^windows-amd64$' {
             "dscpkg-$Version-windows-amd64.zip"

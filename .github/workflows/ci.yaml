@@ -33,6 +33,10 @@ jobs:
             artifact: linux
             binary: dscpkg
             test_args: -race
+          - os: ubuntu-24.04-arm
+            artifact: linux-arm64
+            binary: dscpkg
+            test_args: -race
           - os: windows-latest
             artifact: windows
             binary: dscpkg.exe
