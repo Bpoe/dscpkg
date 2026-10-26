@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 )
 
@@ -71,19 +72,22 @@ func TestDiscoveryDSC33(t *testing.T) {
 			t.Fatalf("build %s: %v\n%s", build.source, err, output)
 		}
 	}
-	manifest, err := os.ReadFile(filepath.Join(root, "dscpkg.dsc.extension.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(bin, "dscpkg.dsc.extension.json"), manifest, 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"dscpkg.dsc.extension.json", "dscpkg.dsc.resource.json"} {
+		manifest, err := os.ReadFile(filepath.Join(root, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bin, name), manifest, 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	// Both tools use an isolated default per-user store; no machine configuration is changed.
 	t.Setenv("LOCALAPPDATA", filepath.Join(temp, "cache"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(temp, "cache"))
 	t.Setenv("HOME", temp)
 	t.Setenv("USERPROFILE", temp)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("PATH", bin)
+	unsetIntegrationEnv(t, "DSCPKG_PACKAGES_DIR")
 	unsetIntegrationEnv(t, "DSC_RESOURCE_PATH")
 	unsetIntegrationEnv(t, "DSC_RESTRICTED_PATH")
 
@@ -118,7 +122,13 @@ func TestDiscoveryDSC33(t *testing.T) {
 	}
 
 	repository := filepath.Join(temp, "repository")
-	server := httptest.NewServer(http.FileServer(http.Dir(repository)))
+	var downloads atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, ".zip") {
+			downloads.Add(1)
+		}
+		http.FileServer(http.Dir(repository)).ServeHTTP(w, r)
+	}))
 	defer server.Close()
 	platform := runtime.GOOS + "_" + runtime.GOARCH
 	install := func(pkg, targetPlatform string, resources ...string) string {
@@ -130,12 +140,16 @@ func TestDiscoveryDSC33(t *testing.T) {
 			args = append(args, "--resource", resource+"@1.0.0")
 		}
 		run(cli, args...)
-		output := run(cli, "install", "--repository", server.URL, "--platform", targetPlatform,
-			"--resource", resources[0], "--version", "1.0.0")
-		var result struct {
-			Path string `json:"path"`
+		if pkg == "example/shared" {
+			integrationResourceScenario(t, dsc, cli, temp, server.URL, &downloads, run)
 		}
-		if err := json.Unmarshal(output, &result); err != nil || result.Path == "" {
+		output := run(cli, "install", "--repository", server.URL, "--platform", targetPlatform,
+			"--resource", resources[0])
+		var result struct {
+			Path    string `json:"path"`
+			Version string `json:"version"`
+		}
+		if err := json.Unmarshal(output, &result); err != nil || result.Path == "" || result.Version != "1.0.0" {
 			t.Fatalf("invalid install result: %s, %v", output, err)
 		}
 		return result.Path

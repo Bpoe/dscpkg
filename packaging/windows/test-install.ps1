@@ -18,6 +18,7 @@ $null = & "$PSScriptRoot/../version.ps1" $Version
 $installDirectory = Join-Path $env:ProgramFiles 'dscpkg'
 $installedBinary = Join-Path $installDirectory 'dscpkg.exe'
 $installedExtension = Join-Path $installDirectory 'dscpkg.dsc.extension.json'
+$installedResource = Join-Path $installDirectory 'dscpkg.dsc.resource.json'
 if (Test-Path -LiteralPath $installDirectory) { throw 'dscpkg is already installed; refusing to modify it.' }
 $logs = [IO.Path]::GetFullPath($LogDirectory)
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
@@ -41,6 +42,8 @@ function Assert-Installed {
     Assert-Equal (Get-SHA256 $installedBinary) (Get-SHA256 $ExpectedBinary) 'Installed executable'
     Assert-Equal (Get-SHA256 $installedExtension) `
         (Get-SHA256 (Join-Path $PSScriptRoot '../../dscpkg.dsc.extension.json')) 'Installed discovery extension'
+    Assert-Equal (Get-SHA256 $installedResource) `
+        (Get-SHA256 (Join-Path $PSScriptRoot '../../dscpkg.dsc.resource.json')) 'Installed resource manifest'
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $entries = @($machinePath -split ';' | ForEach-Object { $_.TrimEnd('\') })
     Assert-Equal @($entries | Where-Object { $_ -ieq $installDirectory }).Count 1 'Product PATH entry count'
@@ -54,6 +57,11 @@ function Assert-Installed {
         $extension = $extensions | ConvertFrom-Json
         Assert-Equal $extension.type 'DscPkg/Discover' 'Installed DSC extension'
         Assert-Equal $extension.path $installedExtension 'Installed DSC extension path'
+        $resources = & $env:DSC_TEST_BIN --ignore-settings-file resource list DscPkg/Resource -o json
+        if ($LASTEXITCODE -ne 0) { throw 'DSC resource discovery failed.' }
+        $resource = $resources | ConvertFrom-Json
+        Assert-Equal $resource.type 'DscPkg/Resource' 'Installed DSC resource'
+        Assert-Equal $resource.path $installedResource 'Installed DSC resource path'
     } finally {
         $env:DSC_RESOURCE_PATH, $env:DSC_RESTRICTED_PATH = $resourcePath, $restrictedPath
     }
@@ -67,6 +75,7 @@ function Remove-TestProduct {
     $script:installed = $null
     if (Test-Path -LiteralPath $installedBinary) { throw 'Uninstall left the executable behind.' }
     if (Test-Path -LiteralPath $installedExtension) { throw 'Uninstall left the discovery extension behind.' }
+    if (Test-Path -LiteralPath $installedResource) { throw 'Uninstall left the resource manifest behind.' }
     $entries = @([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';' |
         ForEach-Object { $_.TrimEnd('\') })
     if ($entries -icontains $installDirectory) { throw 'Uninstall left its PATH entry behind.' }
@@ -82,6 +91,7 @@ try {
     $installed = $candidate
     Assert-Installed $BinaryPath
     Remove-Item -LiteralPath $installedExtension
+    Remove-Item -LiteralPath $installedResource
     Invoke-Msi '/fa' $candidate (Join-Path $logs 'repair-release.log')
     Assert-Installed $BinaryPath
     Remove-TestProduct 'uninstall-release'
@@ -95,6 +105,7 @@ try {
     $installed = $old
     Assert-Installed $oldBinary
     Set-Content -LiteralPath $installedExtension -Value '{"stale":"upgrade fixture"}'
+    Set-Content -LiteralPath $installedResource -Value '{"stale":"upgrade fixture"}'
     Invoke-Msi '/i' $new (Join-Path $logs 'upgrade.log')
     $installed = $new
     Assert-Installed $newBinary

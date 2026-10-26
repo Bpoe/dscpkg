@@ -265,7 +265,7 @@ func (c *Client) resolve(resource, version, requestedPackageVersion string) (pac
 		return packageResolution{}, nil, err
 	}
 	version = strings.ToLower(strings.TrimSpace(version))
-	if !validSegment(version) {
+	if version != "" && !validSegment(version) {
 		return packageResolution{}, nil, fmt.Errorf("invalid resource version %q", version)
 	}
 	if len(c.Repositories) == 0 {
@@ -283,77 +283,123 @@ func (c *Client) resolve(resource, version, requestedPackageVersion string) (pac
 		if err != nil {
 			return packageResolution{}, nil, err
 		}
-		entry, found := catalog.Resources[resource][version]
-		if !found {
-			continue
+		versions := []string{version}
+		if version == "" {
+			versions = nil
+			for candidate := range catalog.Resources[resource] {
+				if isStableVersion(candidate) {
+					versions = append(versions, candidate)
+				}
+			}
+			sort.Slice(versions, func(i, j int) bool { return orderVersions(versions[i], versions[j]) > 0 })
 		}
-		if strings.TrimSpace(entry.URL) == "" {
-			return packageResolution{}, nil, fmt.Errorf("catalog entry for %s@%s has no descriptor URL", resource, version)
-		}
-		if _, _, err := parseDigest(entry.Digest); err != nil {
-			return packageResolution{}, nil, fmt.Errorf("catalog entry for %s@%s has invalid digest: %w", resource, version, err)
-		}
-		descriptorURL, err := resolveURL(repo.catalogURL, entry.URL)
-		if err != nil {
-			return packageResolution{}, nil, err
-		}
-		response, err := c.getDocument(descriptorURL)
-		if err != nil {
-			return packageResolution{}, nil, err
-		}
-		if err := verifyDigest(response.body, entry.Digest); err != nil {
-			return packageResolution{}, nil, fmt.Errorf("resource descriptor %s integrity check: %w", descriptorURL, err)
-		}
-		if err := c.verifyDocument(repo, namespace(resource), descriptorURL, response); err != nil {
-			return packageResolution{}, nil, fmt.Errorf("resource descriptor %s signature check: %w", descriptorURL, err)
-		}
-		var descriptor ResourceDescriptor
-		if err := json.Unmarshal(response.body, &descriptor); err != nil {
-			return packageResolution{}, nil, fmt.Errorf("parse resource descriptor %s: %w", descriptorURL, err)
-		}
-		if len(descriptor.Packages) != 1 {
-			return packageResolution{}, nil, fmt.Errorf("resource descriptor for %s@%s must identify exactly one package; got %d", resource, version, len(descriptor.Packages))
-		}
-		var packageName string
-		var packageInfo struct {
-			Versions map[string]json.RawMessage `json:"versions"`
-		}
-		for name, info := range descriptor.Packages {
-			packageName, err = normalizePackage(name)
+		for _, candidate := range versions {
+			entry, found := catalog.Resources[resource][candidate]
+			if !found {
+				continue
+			}
+			resolved, err := c.resolveEntry(repo, resource, candidate, requestedPackageVersion, entry, version == "")
+			if errors.Is(err, errNoCompatiblePackage) && version == "" {
+				continue
+			}
 			if err != nil {
 				return packageResolution{}, nil, err
 			}
-			packageInfo = info
+			return resolved, repo, nil
 		}
-		versions := make([]string, 0, len(packageInfo.Versions))
-		for candidate := range packageInfo.Versions {
-			if validSegment(candidate) {
-				versions = append(versions, strings.ToLower(candidate))
-			}
-		}
-		if len(versions) == 0 {
-			return packageResolution{}, nil, fmt.Errorf("package %s has no valid published versions", packageName)
-		}
-		sort.Slice(versions, func(i, j int) bool { return compareVersions(versions[i], versions[j]) < 0 })
-		selected := versions[len(versions)-1]
-		if requestedPackageVersion != "" {
-			selected = strings.ToLower(requestedPackageVersion)
-			found := false
-			for _, candidate := range versions {
-				if candidate == selected {
-					found = true
-				}
-			}
-			if !found {
-				return packageResolution{}, nil, fmt.Errorf("package version %q is not available for %s", requestedPackageVersion, packageName)
-			}
-		}
-		return packageResolution{
-			Resource: resource, Version: version, Package: packageName, PackageVersion: selected,
-			Digest: entry.Digest, Path: filepath.Join(c.PackagesDir, filepath.FromSlash(packageName), selected),
-		}, repo, nil
 	}
-	return packageResolution{}, nil, fmt.Errorf("resource %s@%s was not found in any configured repository", resource, version)
+	return packageResolution{}, nil, fmt.Errorf("resource %s@%s was not found with a compatible package in any configured repository", resource, version)
+}
+
+var errNoCompatiblePackage = errors.New("no compatible package version")
+
+func (c *Client) resolveEntry(repo *repository, resource, version, requestedPackageVersion string, entry CatalogEntry, requirePlatform bool) (packageResolution, error) {
+	if strings.TrimSpace(entry.URL) == "" {
+		return packageResolution{}, fmt.Errorf("catalog entry for %s@%s has no descriptor URL", resource, version)
+	}
+	if _, _, err := parseDigest(entry.Digest); err != nil {
+		return packageResolution{}, fmt.Errorf("catalog entry for %s@%s has invalid digest: %w", resource, version, err)
+	}
+	descriptorURL, err := resolveURL(repo.catalogURL, entry.URL)
+	if err != nil {
+		return packageResolution{}, err
+	}
+	response, err := c.getDocument(descriptorURL)
+	if err != nil {
+		return packageResolution{}, err
+	}
+	if err := verifyDigest(response.body, entry.Digest); err != nil {
+		return packageResolution{}, fmt.Errorf("resource descriptor %s integrity check: %w", descriptorURL, err)
+	}
+	if err := c.verifyDocument(repo, namespace(resource), descriptorURL, response); err != nil {
+		return packageResolution{}, fmt.Errorf("resource descriptor %s signature check: %w", descriptorURL, err)
+	}
+	var descriptor ResourceDescriptor
+	if err := json.Unmarshal(response.body, &descriptor); err != nil {
+		return packageResolution{}, fmt.Errorf("parse resource descriptor %s: %w", descriptorURL, err)
+	}
+	if len(descriptor.Packages) != 1 {
+		return packageResolution{}, fmt.Errorf("resource descriptor for %s@%s must identify exactly one package; got %d", resource, version, len(descriptor.Packages))
+	}
+	var packageName string
+	var packageInfo struct {
+		Versions map[string]json.RawMessage `json:"versions"`
+	}
+	for name, info := range descriptor.Packages {
+		packageName, err = normalizePackage(name)
+		if err != nil {
+			return packageResolution{}, err
+		}
+		packageInfo = info
+	}
+	versions := make([]string, 0, len(packageInfo.Versions))
+	for candidate := range packageInfo.Versions {
+		if validSegment(candidate) {
+			versions = append(versions, strings.ToLower(candidate))
+		}
+	}
+	if len(versions) == 0 {
+		return packageResolution{}, fmt.Errorf("package %s has no valid published versions", packageName)
+	}
+	sort.Slice(versions, func(i, j int) bool { return orderVersions(versions[i], versions[j]) < 0 })
+	selected := versions[len(versions)-1]
+	if requestedPackageVersion != "" {
+		selected = strings.ToLower(requestedPackageVersion)
+		found := false
+		for _, candidate := range versions {
+			if candidate == selected {
+				found = true
+			}
+		}
+		if !found {
+			if requirePlatform {
+				return packageResolution{}, errNoCompatiblePackage
+			}
+			return packageResolution{}, fmt.Errorf("package version %q is not available for %s", requestedPackageVersion, packageName)
+		}
+		versions = []string{selected}
+	}
+	resolved := packageResolution{
+		Resource: resource, Version: version, Package: packageName, PackageVersion: selected,
+		Digest: entry.Digest, Path: filepath.Join(c.PackagesDir, filepath.FromSlash(packageName), selected),
+	}
+	if requirePlatform {
+		for i := len(versions) - 1; i >= 0; i-- {
+			archive, archiveURL, err := c.packageArchive(repo, packageName, versions[i])
+			if errors.Is(err, errNoCompatiblePackage) {
+				continue
+			}
+			if err != nil {
+				return packageResolution{}, err
+			}
+			resolved.PackageVersion = versions[i]
+			resolved.Path = filepath.Join(c.PackagesDir, filepath.FromSlash(packageName), versions[i])
+			resolved.archive, resolved.archiveURL = &archive, archiveURL
+			return resolved, nil
+		}
+		return packageResolution{}, errNoCompatiblePackage
+	}
+	return resolved, nil
 }
 
 func (c *Client) discover(origin string) (*repository, error) {
@@ -627,29 +673,94 @@ func parseDigest(value string) (string, []byte, error) {
 }
 
 func compareVersions(a, b string) int {
-	prefixA, _, _ := strings.Cut(a, "-")
-	prefixB, _, _ := strings.Cut(b, "-")
+	prefixA, preA, _ := strings.Cut(a, "-")
+	prefixB, preB, _ := strings.Cut(b, "-")
 	partsA, partsB := strings.Split(prefixA, "."), strings.Split(prefixB, ".")
 	count := len(partsA)
 	if len(partsB) > count {
 		count = len(partsB)
 	}
 	for i := 0; i < count; i++ {
-		av, bv := uint64(0), uint64(0)
+		av, bv := "0", "0"
 		if i < len(partsA) {
-			fmt.Sscan(partsA[i], &av)
+			av = partsA[i]
 		}
 		if i < len(partsB) {
-			fmt.Sscan(partsB[i], &bv)
+			bv = partsB[i]
 		}
-		if av < bv {
-			return -1
-		}
-		if av > bv {
-			return 1
+		if compared := compareVersionPart(av, bv); compared != 0 {
+			return compared
 		}
 	}
+	if preA == "" && preB != "" {
+		return 1
+	}
+	if preA != "" && preB == "" {
+		return -1
+	}
+	aParts, bParts := strings.Split(preA, "."), strings.Split(preB, ".")
+	for i := 0; i < len(aParts) && i < len(bParts); i++ {
+		if compared := compareVersionPart(aParts[i], bParts[i]); compared != 0 {
+			return compared
+		}
+	}
+	if len(aParts) < len(bParts) {
+		return -1
+	}
+	if len(aParts) > len(bParts) {
+		return 1
+	}
+	return 0
+}
+
+func orderVersions(a, b string) int {
+	if compared := compareVersions(a, b); compared != 0 {
+		return compared
+	}
 	return strings.Compare(a, b)
+}
+
+func numericVersionPart(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func compareVersionPart(a, b string) int {
+	an, bn := numericVersionPart(a), numericVersionPart(b)
+	if an && bn {
+		a, b = strings.TrimLeft(a, "0"), strings.TrimLeft(b, "0")
+		if len(a) < len(b) {
+			return -1
+		}
+		if len(a) > len(b) {
+			return 1
+		}
+	} else if an != bn {
+		if an {
+			return -1
+		}
+		return 1
+	}
+	return strings.Compare(a, b)
+}
+
+func isStableVersion(value string) bool {
+	if !validSegment(value) {
+		return false
+	}
+	for _, part := range strings.Split(value, ".") {
+		if !numericVersionPart(part) {
+			return false
+		}
+	}
+	return true
 }
 
 func packageDocumentURL(endpoint, packageName, version string) (string, error) {

@@ -82,7 +82,7 @@ jobs:
       - name: Test
         run: go test ${{ matrix.test_args }} ./...
 
-      - name: Test discovery against DSC 3.3.0
+      - name: Test discovery and resource operations against DSC 3.3.0
         shell: pwsh
         run: |
           $arch = if ((go env GOHOSTARCH) -eq 'arm64') { 'aarch64' } else { 'x86_64' }

@@ -183,3 +183,107 @@ func TestPublishHelpListsPublishingFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestResourceCommands(t *testing.T) {
+	t.Setenv("DSCPKG_PACKAGES_DIR", filepath.Join(t.TempDir(), "absent"))
+	for _, test := range []struct {
+		operation, input, output, errorText string
+	}{
+		{"get", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing"}` + "\n", ""},
+		{"test", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":false}` + "\n" + `["state"]` + "\n", ""},
+		{"test", `{"resource":"Example/One","state":"missing"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":true}` + "\n[]\n", ""},
+		{"export", "", "", ""},
+		{"export", "not read", "", ""},
+		{"get", "{}", "", "invalid resource"},
+		{"get", "null", "", "invalid resource"},
+		{"get", `{"resource":"Example/One","unknown":true}`, "", "unknown field"},
+		{"test", `{"resource":"Example/One","state":"absent"}`, "", "invalid resource state"},
+		{"get", `{"resource":"Example/One"} {}`, "", "exactly one"},
+		{"set", `{"resource":"Example/One"}`, "", "repository"},
+		{"set", `{"resource":"Example/One","state":"missing"}`, "", "removal is not supported"},
+	} {
+		t.Run(test.operation+test.input, func(t *testing.T) {
+			var out, diagnostics bytes.Buffer
+			err := runResource([]string{test.operation}, strings.NewReader(test.input), &out, &diagnostics)
+			if test.errorText != "" {
+				if err == nil || !strings.Contains(err.Error(), test.errorText) {
+					t.Fatalf("err=%v want=%q", err, test.errorText)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if out.String() != test.output || diagnostics.Len() != 0 {
+				t.Fatalf("stdout=%q stderr=%q", out.String(), diagnostics.String())
+			}
+		})
+	}
+}
+
+func TestResourceExportNames(t *testing.T) {
+	store := t.TempDir()
+	t.Setenv("DSCPKG_PACKAGES_DIR", store)
+	for _, version := range []string{"0.1.1", "0.2.0"} {
+		directory := filepath.Join(store, "dscextras", "linux", version)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		metadata := `{"schemaVersion":1,"platform":"` + currentPlatform() + `"}`
+		if err := os.WriteFile(filepath.Join(filepath.Dir(directory), "."+version+".dscpkg.json"), []byte(metadata), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		manifests := `{"resources":[{"type":"DscExtras.Linux/groups","version":"` + version +
+			`"},{"type":"DscExtras.Linux/services","version":"` + version + `"}]}`
+		if err := os.WriteFile(filepath.Join(directory, "linux.dsc.manifests.json"), []byte(manifests), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runResource([]string{"export"}, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	lines := bytes.Split(bytes.TrimSpace(stdout.Bytes()), []byte("\n"))
+	if len(lines) != 4 {
+		t.Fatalf("expected one instance per resource/version pair: %s", &stdout)
+	}
+	names := make(map[string]bool)
+	for _, line := range lines {
+		var instance struct {
+			Name     string `json:"_name"`
+			Resource string `json:"resource"`
+			Version  string `json:"version"`
+		}
+		if err := json.Unmarshal(line, &instance); err != nil {
+			t.Fatal(err)
+		}
+		want := instance.Resource + "@" + instance.Version
+		if instance.Name != want || names[instance.Name] {
+			t.Fatalf("expected unique unencoded resource@version name %q: %s", want, line)
+		}
+		names[instance.Name] = true
+	}
+	for _, operation := range []string{"get", "test", "set"} {
+		stdout.Reset()
+		if err := runResource([]string{operation}, strings.NewReader(`{"resource":"DscExtras.Linux/groups"}`), &stdout, &stderr); err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(stdout.Bytes(), []byte(`"_name"`)) {
+			t.Fatalf("%s emitted Export-only _name: %s", operation, &stdout)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("unexpected diagnostics: %s", &stderr)
+	}
+}
+
+func TestPackageStoreOverride(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "shared store")
+	t.Setenv("DSCPKG_PACKAGES_DIR", directory)
+	if got := defaultPackagesDir(); got != directory {
+		t.Fatalf("default store=%q want=%q", got, directory)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runResource([]string{"get", "--packages-dir", filepath.Join(t.TempDir(), "explicit")},
+		strings.NewReader(`{"resource":"Example/One"}`), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+}
