@@ -80,21 +80,13 @@ func TestDiscoverManifests(t *testing.T) {
 	}
 }
 
-func TestDiscoverSingleManifestAndRelativeStore(t *testing.T) {
+func TestDiscoverSingleManifest(t *testing.T) {
 	root := t.TempDir()
 	directory := discoveryPackage(t, root, "example/shared/1", currentPlatform())
 	path := filepath.Join(directory, "one.dsc.resource.json")
 	discoveryFile(t, path, "{}")
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	relative, err := filepath.Rel(cwd, root)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var out, diagnostics bytes.Buffer
-	if err := Discover(relative, &out, &diagnostics); err != nil {
+	if err := Discover(root, &out, &diagnostics); err != nil {
 		t.Fatal(err)
 	}
 	if got := decodeDiscovery(t, out.Bytes()); !reflect.DeepEqual(got, []string{path}) {
@@ -158,8 +150,15 @@ func TestDiscoverReadOnly(t *testing.T) {
 	root := t.TempDir()
 	directory := discoveryPackage(t, root, "example/shared/1", currentPlatform())
 	discoveryFile(t, filepath.Join(directory, "one.dsc.resource.json"), "{}")
-	before := discoverySnapshot(t, root)
-	for path, entry := range before {
+	original := discoverySnapshot(t, root)
+	t.Cleanup(func() {
+		for path, entry := range original {
+			if err := os.Chmod(path, entry.mode.Perm()); err != nil {
+				t.Errorf("restore fixture permissions: %v", err)
+			}
+		}
+	})
+	for path, entry := range original {
 		mode := fs.FileMode(0o444)
 		if entry.mode.IsDir() {
 			mode = 0o555
@@ -168,12 +167,7 @@ func TestDiscoverReadOnly(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Cleanup(func() {
-		for path, entry := range before {
-			_ = os.Chmod(path, entry.mode)
-		}
-	})
-	before = discoverySnapshot(t, root)
+	before := discoverySnapshot(t, root)
 	var out, diagnostics bytes.Buffer
 	if err := Discover(root, &out, &diagnostics); err != nil {
 		t.Fatal(err)

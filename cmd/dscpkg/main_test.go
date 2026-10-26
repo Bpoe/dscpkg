@@ -58,8 +58,9 @@ func TestDiscoverProcess(t *testing.T) {
 			}
 			t.Setenv("DSC_RESOURCE_PATH", root)
 			t.Setenv("DSCPKG_TEST_PROCESS", "1")
-			args := []string{"-test.run=^TestDscpkgProcess$", "--", "discover", "--packages-dir", store}
+			args := []string{"-test.run=^TestDscpkgProcess$", "--", "discover", "--packages-dir", filepath.Base(store)}
 			command := exec.Command(os.Args[0], append(args, test.args...)...)
+			command.Dir = root
 			var stdout, stderr bytes.Buffer
 			command.Stdout, command.Stderr = &stdout, &stderr
 			err := command.Run()
