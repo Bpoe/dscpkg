@@ -22,6 +22,17 @@ const maxExpandedSize = uint64(8 << 30)
 
 func (c *Client) installPackage(repo *repository, resolved packageResolution) (bool, error) {
 	if info, err := os.Stat(resolved.Path); err == nil && info.IsDir() {
+		installed, err := readInstalledPackage(resolved.Path)
+		if errors.Is(err, os.ErrNotExist) {
+			// Legacy caches remain usable, but discovery cannot attest their platform.
+			return false, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("verify cached package (move %q aside and reinstall to repair): %w", resolved.Path, err)
+		}
+		if installed.Platform != c.Platform {
+			return false, fmt.Errorf("cached package %q targets %s, not %s; use a separate --packages-dir for each platform", resolved.Path, installed.Platform, c.Platform)
+		}
 		return false, nil
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
@@ -134,9 +145,13 @@ func (c *Client) installPackage(repo *repository, resolved packageResolution) (b
 	if err := extractZip(archiveTemp, stage); err != nil {
 		return false, fmt.Errorf("extract package archive: %w", err)
 	}
+	// Publish provenance first so discovery never sees a new directory without it.
+	if err := writeInstalledPackage(resolved.Path, c.Platform); err != nil {
+		return false, fmt.Errorf("record installed package platform: %w", err)
+	}
 	if err := os.Rename(stage, resolved.Path); err != nil {
-		if info, statErr := os.Stat(resolved.Path); statErr == nil && info.IsDir() {
-			return false, nil
+		if removeErr := os.Remove(installedMetadataPath(resolved.Path)); removeErr != nil {
+			return false, fmt.Errorf("atomically install package: %w; remove provenance: %v", err, removeErr)
 		}
 		return false, fmt.Errorf("atomically install package: %w", err)
 	}

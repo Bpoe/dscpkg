@@ -13,9 +13,11 @@ if (-not $IsWindows -or -not $Disposable -or $env:GITHUB_ACTIONS -ne 'true' -or
     $env:RUNNER_ENVIRONMENT -ne 'github-hosted') {
     throw 'Installation tests require -Disposable on a GitHub-hosted Windows runner.'
 }
+if (-not $env:DSC_TEST_BIN) { throw 'DSC_TEST_BIN must identify the isolated DSC 3.3.0 executable.' }
 $null = & "$PSScriptRoot/../version.ps1" $Version
 $installDirectory = Join-Path $env:ProgramFiles 'dscpkg'
 $installedBinary = Join-Path $installDirectory 'dscpkg.exe'
+$installedExtension = Join-Path $installDirectory 'dscpkg.dsc.extension.json'
 if (Test-Path -LiteralPath $installDirectory) { throw 'dscpkg is already installed; refusing to modify it.' }
 $logs = [IO.Path]::GetFullPath($LogDirectory)
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
@@ -37,11 +39,24 @@ function Assert-Preserved {
 function Assert-Installed {
     param([string] $ExpectedBinary)
     Assert-Equal (Get-SHA256 $installedBinary) (Get-SHA256 $ExpectedBinary) 'Installed executable'
+    Assert-Equal (Get-SHA256 $installedExtension) `
+        (Get-SHA256 (Join-Path $PSScriptRoot '../../dscpkg.dsc.extension.json')) 'Installed discovery extension'
     $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
     $entries = @($machinePath -split ';' | ForEach-Object { $_.TrimEnd('\') })
     Assert-Equal @($entries | Where-Object { $_ -ieq $installDirectory }).Count 1 'Product PATH entry count'
     $env:PATH = "$machinePath;$processPath"
     Assert-Equal (Get-Command dscpkg -CommandType Application).Source $installedBinary 'PATH lookup'
+    $resourcePath, $restrictedPath = $env:DSC_RESOURCE_PATH, $env:DSC_RESTRICTED_PATH
+    try {
+        Remove-Item Env:DSC_RESOURCE_PATH, Env:DSC_RESTRICTED_PATH -ErrorAction SilentlyContinue
+        $extensions = & $env:DSC_TEST_BIN --ignore-settings-file extension list DscPkg/Discover -o json
+        if ($LASTEXITCODE -ne 0) { throw 'DSC extension discovery failed.' }
+        $extension = $extensions | ConvertFrom-Json
+        Assert-Equal $extension.type 'DscPkg/Discover' 'Installed DSC extension'
+        Assert-Equal $extension.path $installedExtension 'Installed DSC extension path'
+    } finally {
+        $env:DSC_RESOURCE_PATH, $env:DSC_RESTRICTED_PATH = $resourcePath, $restrictedPath
+    }
     Invoke-Checked $installedBinary @('publish', '-h')
     Assert-Preserved
 }
@@ -51,6 +66,7 @@ function Remove-TestProduct {
     Invoke-Msi '/x' $script:installed (Join-Path $logs "$Label.log")
     $script:installed = $null
     if (Test-Path -LiteralPath $installedBinary) { throw 'Uninstall left the executable behind.' }
+    if (Test-Path -LiteralPath $installedExtension) { throw 'Uninstall left the discovery extension behind.' }
     $entries = @([Environment]::GetEnvironmentVariable('Path', 'Machine') -split ';' |
         ForEach-Object { $_.TrimEnd('\') })
     if ($entries -icontains $installDirectory) { throw 'Uninstall left its PATH entry behind.' }
@@ -65,6 +81,7 @@ try {
     Invoke-Msi '/i' $candidate (Join-Path $logs 'install-release.log')
     $installed = $candidate
     Assert-Installed $BinaryPath
+    Remove-Item -LiteralPath $installedExtension
     Invoke-Msi '/fa' $candidate (Join-Path $logs 'repair-release.log')
     Assert-Installed $BinaryPath
     Remove-TestProduct 'uninstall-release'
@@ -77,6 +94,7 @@ try {
     Invoke-Msi '/i' $old (Join-Path $logs 'install-old.log')
     $installed = $old
     Assert-Installed $oldBinary
+    Set-Content -LiteralPath $installedExtension -Value '{"stale":"upgrade fixture"}'
     Invoke-Msi '/i' $new (Join-Path $logs 'upgrade.log')
     $installed = $new
     Assert-Installed $newBinary

@@ -28,10 +28,12 @@ rpm2archive -n < "$rpm" > "$stage/rpm.tar"
 tar -xf "$stage/rpm.tar" -C "$stage/rpm"
 for format in deb rpm; do
     extracted="$stage/$format"
-    diff <(printf '%s\n' usr/bin/dscpkg usr/share/doc/dscpkg/README.md usr/share/licenses/dscpkg/LICENSE | sort) \
+    diff <(printf '%s\n' usr/bin/dscpkg usr/bin/dscpkg.dsc.extension.json usr/share/doc/dscpkg/README.md usr/share/licenses/dscpkg/LICENSE | sort) \
          <(find "$extracted" -type f -printf '%P\n' | sort)
     [[ $(stat -c %a "$extracted/usr/bin/dscpkg") == 755 ]]
     cmp "$binary" "$extracted/usr/bin/dscpkg"
+    [[ $(stat -c %a "$extracted/usr/bin/dscpkg.dsc.extension.json") == 644 ]]
+    cmp "$root/dscpkg.dsc.extension.json" "$extracted/usr/bin/dscpkg.dsc.extension.json"
     cmp "$root/README.md" "$extracted/usr/share/doc/dscpkg/README.md"
     cmp "$root/LICENSE" "$extracted/usr/share/licenses/dscpkg/LICENSE"
     "$extracted/usr/bin/dscpkg" publish -h

@@ -7,6 +7,7 @@ if [[ $# != 7 || $1 != --disposable || ${GITHUB_ACTIONS:-} != true ||
     echo "Usage (disposable GitHub-hosted runner/container only): $0 --disposable deb|rpm VERSION ASSETS BINARY FIXTURES LOGS" >&2
     exit 1
 fi
+[[ -x ${DSC_TEST_BIN:?Set DSC_TEST_BIN to the isolated DSC 3.3.0 executable} ]]
 root=$(cd "$(dirname "$0")/../.." && pwd)
 # shellcheck source=packaging/linux/architecture.sh
 source "$root/packaging/linux/architecture.sh"
@@ -28,6 +29,7 @@ case "$format" in
     *) echo "Unknown package format: $format" >&2; exit 1 ;;
 esac
 [[ ! -e /usr/bin/dscpkg ]]
+[[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
 cache="$HOME/.cache/dscpkg/packages"
 [[ ! -e "$cache" ]]
 mkdir -p "$cache/.dscpkg" "$cache/test-resource"
@@ -54,6 +56,9 @@ verify_install() {
     # Merged bin/sbin layouts may expose the installed file through another PATH alias.
     [[ $(command -v dscpkg) -ef /usr/bin/dscpkg ]]
     cmp "$1" /usr/bin/dscpkg
+    cmp "$root/dscpkg.dsc.extension.json" /usr/bin/dscpkg.dsc.extension.json
+    env -u DSC_RESOURCE_PATH -u DSC_RESTRICTED_PATH "$DSC_TEST_BIN" --ignore-settings-file \
+        extension list DscPkg/Discover -o json | grep -F '"type":"DscPkg/Discover"'
     dscpkg publish -h
     if [[ $format == deb ]]; then
         # dpkg-query, not Bash, expands this field.
@@ -70,10 +75,12 @@ trap cleanup EXIT
 candidate=$(package_path "$assets" "$version")
 install_package "$candidate"
 verify_install "$binary" "$version"
+rm /usr/bin/dscpkg.dsc.extension.json
 install_package "$candidate"
 verify_install "$binary" "$version"
 remove_package
 [[ ! -e /usr/bin/dscpkg ]]
+[[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
 preserved
 
 if cmp -s "$fixtures/v1.0.0/dscpkg" "$fixtures/v1.0.1/dscpkg"; then
@@ -82,9 +89,11 @@ if cmp -s "$fixtures/v1.0.0/dscpkg" "$fixtures/v1.0.1/dscpkg"; then
 fi
 install_package "$(package_path "$fixtures/v1.0.0/assets" 1.0.0)"
 verify_install "$fixtures/v1.0.0/dscpkg" 1.0.0
+printf '{"stale":"upgrade fixture"}\n' > /usr/bin/dscpkg.dsc.extension.json
 install_package "$(package_path "$fixtures/v1.0.1/assets" 1.0.1)"
 verify_install "$fixtures/v1.0.1/dscpkg" 1.0.1
 remove_package
 [[ ! -e /usr/bin/dscpkg ]]
+[[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
 preserved
 echo "$format install, reinstall, upgrade, uninstall and data retention passed."
