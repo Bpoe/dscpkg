@@ -1,0 +1,10 @@
+{
+  "$schema": "https://aka.ms/dsc/schemas/v3.1.0/bundled/extension/manifest.json",
+  "type": "DscPkg/Discover",
+  "version": "1.0.0",
+  "description": "Discover resources in locally installed dscpkg packages.",
+  "discover": {
+    "executable": "dscpkg",
+    "args": ["discover"]
+  }
+}

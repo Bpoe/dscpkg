@@ -248,6 +248,9 @@ func (c *Client) cleanup() ([]string, error) {
 				if err := os.RemoveAll(versionPath); err != nil {
 					return nil, err
 				}
+				if err := os.Remove(installedMetadataPath(versionPath)); err != nil && !errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("remove package provenance: %w", err)
+				}
 				removed = append(removed, versionPath)
 			}
 		}

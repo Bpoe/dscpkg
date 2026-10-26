@@ -14,6 +14,12 @@ contents:
       mode: 0755
       owner: root
       group: root
+  - src: dscpkg.dsc.extension.json
+    dst: /usr/bin/dscpkg.dsc.extension.json
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
   - src: README.md
     dst: /usr/share/doc/dscpkg/README.md
     file_info:

@@ -2,6 +2,7 @@ package dscpkg
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,10 +27,17 @@ func ResourcePath(packagesDir, existing string) (string, error) {
 
 func packageDirectories(packagesDir string) ([]string, error) {
 	var result []string
-	namespaces, err := os.ReadDir(packagesDir)
+	info, err := os.Stat(packagesDir)
 	if errors.Is(err, os.ErrNotExist) {
 		return result, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("package store %q is not a directory", packagesDir)
+	}
+	namespaces, err := os.ReadDir(packagesDir)
 	if err != nil {
 		return nil, err
 	}

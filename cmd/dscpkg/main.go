@@ -65,7 +65,7 @@ func run(args []string, stdout, stderr *os.File) error {
 			fmt.Fprintln(stderr, "usage: dscpkg publish --repository DIR --package namespace/name --package-version VERSION --platform os_arch (--archive FILE | --archive-url URL) --resource Namespace/name@version [--resource ...]")
 			flags.PrintDefaults()
 		}
-	case "list", "env", "remove":
+	case "list", "env", "remove", "discover":
 		packagesDir = flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
 	default:
 		return usageError()
@@ -84,6 +84,8 @@ func run(args []string, stdout, stderr *os.File) error {
 	}
 
 	switch command {
+	case "discover":
+		return dscpkg.Discover(*packagesDir, stdout, stderr)
 	case "install", "update", "cleanup":
 		if len(repositories) == 0 {
 			return errors.New("--repository is required")
@@ -156,7 +158,7 @@ func printJSON(out *os.File, value any) error {
 }
 
 func usageError() error {
-	return errors.New("usage: dscpkg <install|update|cleanup|publish|list|remove|env> [flags]")
+	return errors.New("usage: dscpkg <install|update|cleanup|publish|list|remove|env|discover> [flags]")
 }
 
 func defaultPackagesDir() string {

@@ -35,6 +35,116 @@ dscpkg install \
 uses `<user cache directory>/dscpkg/packages`. `--platform` overrides the detected
 `os_arch` archive key, for example `linux_amd64`.
 
+## Discover installed resources with DSC
+
+With DSC **3.3.0 or later**, dscpkg's `DscPkg/Discover` extension exposes locally
+installed packages without adding every package directory to `DSC_RESOURCE_PATH`.
+The native installers and release archives place `dscpkg.dsc.extension.json`
+alongside the executable. DSC finds that manifest through PATH and runs
+`dscpkg discover`. Verify the extension and resources in a new terminal:
+
+```sh
+dsc extension list DscPkg/Discover
+dsc resource list
+dsc resource get --resource DscExtras.Linux/groups --input '{"name":"root"}'
+```
+
+For example, on supported Linux systems, installing
+`DscExtras.Linux/groups` from a repository publishing the shared `dscextras/linux`
+package also exposes its `DscExtras.Linux/services` manifest. Both resources run
+the package's existing `dsclinux` executable in the original package directory.
+Packages are never split into resource-specific directories or copied for
+discovery. A newly launched DSC process sees newly installed packages immediately;
+there is no service to restart.
+
+The public example package can be installed on Linux with:
+
+```sh
+dscpkg install --repository https://bpoe.github.io/dsc-extras/ \
+  --resource DscExtras.Linux/groups --version 0.0.1
+dsc resource list 'DscExtras.Linux/*'
+dsc resource get --resource DscExtras.Linux/groups --input '{"name":"root"}'
+dsc resource get --resource DscExtras.Linux/services \
+  --input '{"name":"systemd-journald.service"}'
+```
+
+The `get` examples only read state; the service example requires systemd.
+
+Inspect the extension's output manually:
+
+```sh
+dscpkg discover
+dscpkg discover --packages-dir /path/to/packages
+```
+
+Each stdout line is a JSON object with an absolute `manifestPath`. Discovery
+recursively enumerates installed package-version directories, recognizing
+`.dsc.resource.json`, `.yaml`, and `.yml`, plus DSC's
+`.dsc.adaptedresource.*` and `.dsc.manifests.*` formats. Paths are sorted and
+deduplicated; an empty or missing store succeeds with no stdout output. Discovery
+does not follow symlinks, inspect inherited `DSC_RESOURCE_PATH` directories, write
+files, acquire a write lock, query repositories, or download anything. Operational
+errors go to stderr with a nonzero exit code. DSC validates resource manifests
+when loading them.
+
+### Platform provenance and older packages
+
+New installations record the selected archive's exact `os_arch` platform in
+`<namespace>/<package>/.<version>.dscpkg.json`, beside (not inside) the
+package-version directory. Verified archive contents remain unchanged. Discovery
+advertises only packages whose recorded OS **and architecture** match the running
+dscpkg executable, never inferring compatibility from a package or resource name.
+An incompatible cached version is not reused by install/update for another
+platform; use separate `--packages-dir` stores for different target platforms.
+Cleanup removes a deleted version's provenance along with that version.
+
+Packages installed by older dscpkg versions have no reliable platform provenance.
+Discovery excludes them and writes reinstall guidance to stderr, while still
+returning verified compatible packages successfully. Existing install/update cache
+reuse and `dscpkg env` remain available for those legacy packages, but do not
+retroactively assert their platform. To migrate, move the affected version
+directory **outside the package store**, then reinstall its resources with the
+current dscpkg and the intended platform. Re-running install without moving the
+legacy directory reuses the old cache and cannot establish provenance. Do not
+fabricate sidecars or copy them between platforms. Corrupt provenance is an error;
+move the affected version aside and reinstall to repair it.
+
+### Installation scope and package-store selection
+
+Machine-wide MSI/DEB/RPM installation registers the **CLI and extension**, not a
+machine-wide resource store. By default discovery uses the invoking identity's
+`<user cache directory>/dscpkg/packages`: `%LOCALAPPDATA%\dscpkg\packages` on
+Windows, `${XDG_CACHE_HOME:-$HOME/.cache}/dscpkg/packages` on Linux, and
+`$HOME/Library/Caches/dscpkg/packages` on macOS. Installing packages as one account
+does not expose them to another account or service identity. For example, dscd
+running as LocalSystem or root does not use an interactive user's store.
+
+For a custom or shared store, install packages with `--packages-dir` and configure
+one copy of the extension manifest's `discover.args` as
+`["discover", "--packages-dir", "/absolute/path/to/packages"]` (use a correctly
+JSON-escaped Windows path on Windows). Place that copy in a DSC search directory
+and avoid competing copies of `DscPkg/Discover`. Use an administrator-owned custom
+location rather than modifying installer-owned files, which upgrades replace.
+Every invoking identity needs access to the store and executable; DSC executes
+package code with that identity's permissions. Share stores only with trusted
+writers.
+
+### Interaction with DSC_RESOURCE_PATH
+
+DSC 3.3.0 searches PATH for manifests when `DSC_RESOURCE_PATH` is **unset**.
+If that variable is explicitly set, DSC searches those directories instead of
+PATH for the extension manifest. Keep any existing entries, but also include
+the directory containing `dscpkg.dsc.extension.json` once (for example,
+`%ProgramFiles%\dscpkg` or `/usr/bin`). The `dscpkg` executable must remain on PATH.
+You do **not** need to add individual package directories. `DSC_RESTRICTED_PATH`
+and DSC resource-path policy/settings can similarly restrict discovery; the
+extension and its executable must be allowed by that configuration.
+
+This is strictly **local discovery** of already installed packages. It is not
+remote resource discovery or automatic installation. Resources must first be
+installed explicitly with `dscpkg install`; no future remote-install protocol is
+implemented.
+
 ## Commands
 
 Install a resource and optionally select an exact package version:
@@ -77,8 +187,8 @@ Print the current package paths for shell integration, without a
 dscpkg env
 ```
 
-The CLI cannot change its parent shell's environment. For Bash, import the printed
-value after install or update:
+For older DSC versions or explicit legacy shell integration, the CLI cannot
+change its parent shell's environment. For Bash, import the printed value:
 
 ```sh
 export DSC_RESOURCE_PATH="$(dscpkg env)"
@@ -95,7 +205,9 @@ dsc.exe resource get --resource Microsoft.GuestConfiguration/users
 `DSC_RESOURCE_PATH` uses the platform's path-list separator. `dscpkg env` preserves
 existing paths outside the package cache and includes cached package-version
 directories. Add it to the environment used to launch DSC so DSC can discover
-the package's `*.dsc.resource.json` manifests.
+the package's `*.dsc.resource.json` manifests directly. This legacy mechanism does
+not apply the discovery extension's platform filtering; prefer the extension
+with DSC 3.3.0 or later.
 
 ## Publish a repository
 
@@ -209,6 +321,21 @@ Linux and macOS), and builds on Linux AMD64/ARM64, Windows, and macOS. It upload
 one executable artifact for each runner operating system and architecture.
 Go build caching is enabled through `actions/setup-go`.
 
+CI also downloads DSC 3.3.0 into runner-local temporary directories and runs:
+
+```powershell
+./tests/test-discovery.ps1 -DscPath /path/to/dsc
+```
+
+This validates the extension against the official bundled schema exported by
+that engine and runs `go test -tags=integration -count=1 -v ./tests`. Tests build
+safe shared-executable resources, publish to a loopback HTTP server, install
+through the CLI into an isolated per-user store, and exercise extension listing,
+resource listing/invocation, platform exclusion, fresh-process discovery, and
+explicit `DSC_RESOURCE_PATH` bootstrap. They never install DSC system-wide or
+change the developer's package store. To use an existing DSC 3.3.0 directly, set
+`DSC_TEST_BIN` and run the tagged Go tests.
+
 CI also builds and inspects release archives and native installers. Windows MSI
 tests and Linux AMD64/ARM64 Ubuntu DEB and containerized Fedora RPM tests cover
 fresh installation, reinstallation/repair, upgrade replacement using isolated
@@ -222,7 +349,13 @@ Releases include Linux AMD64/ARM64 and Windows AMD64 archives, a macOS archive f
 native architecture of the macOS CI runner, Windows MSI, Linux AMD64/ARM64 DEB/RPM, and
 `SHA256SUMS`. macOS filenames use Go's `darwin` platform name and the actual
 `amd64` or `arm64` build architecture. Extract an archive and put its `bin`
-directory on PATH, or use the appropriate native installer:
+directory on PATH, keeping **both** the executable and
+`dscpkg.dsc.extension.json` together. This also applies to manual ZIP installation:
+copy both files from `bin` into a directory on PATH, open a new terminal, and
+verify with `dsc extension list DscPkg/Discover`. For a source build, copy the
+repository's `dscpkg.dsc.extension.json` alongside the built executable. If
+`DSC_RESOURCE_PATH` is set, follow the bootstrap instructions above. Alternatively,
+use the appropriate native installer:
 
 ```sh
 sudo apt install ./dscpkg_1.2.3_amd64.deb
@@ -241,12 +374,13 @@ msiexec /i dscpkg-v1.2.3-windows-amd64.msi /qn /norestart
 
 The MSI installs to `%ProgramFiles%\dscpkg` and adds that directory to the system
 PATH; open a new terminal after installation. DEB/RPM install `/usr/bin/dscpkg`.
+Both install the discovery extension manifest alongside the executable.
 These are machine-wide CLI installations, not services. No DSC runtime is
 bundled or required to install dscpkg.
 
 Use Installed apps on Windows, `sudo apt remove dscpkg`, or `sudo dnf remove
-dscpkg` to uninstall. Upgrades replace the executable; uninstall removes the
-executable and its installer-managed PATH entry, but never deletes users'
+dscpkg` to uninstall. Upgrades replace the executable and extension manifest;
+uninstall removes both and the installer's managed PATH entry, but never deletes users'
 downloaded resource packages, registries, or caches. Linux follows the native
 package manager's version ordering; MSI blocks downgrades.
 

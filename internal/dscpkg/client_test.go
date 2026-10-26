@@ -139,6 +139,14 @@ func TestInstallPrecedenceSigningSharingUpdateAndCleanup(t *testing.T) {
 	if !first.Downloaded || first.PackageVersion != "1.2.0" {
 		t.Fatalf("unexpected initial install result: %+v", first)
 	}
+	installed, err := readInstalledPackage(first.Path)
+	if err != nil || installed.Platform != client.Platform {
+		t.Fatalf("installation did not record platform provenance: %+v, %v", installed, err)
+	}
+	contents, err := os.ReadDir(first.Path)
+	if err != nil || len(contents) != 1 || contents[0].Name() != "resource.json" {
+		t.Fatalf("provenance changed archive contents: %v, %v", contents, err)
+	}
 	second, err := client.Install(testResourceTwo, "2026-01-01", "")
 	if err != nil {
 		t.Fatal(err)
@@ -199,6 +207,12 @@ func TestInstallPrecedenceSigningSharingUpdateAndCleanup(t *testing.T) {
 	}
 	if _, err := os.Stat(first.Path); !os.IsNotExist(err) {
 		t.Fatalf("cleanup retained obsolete package version: %v", err)
+	}
+	if _, err := os.Stat(installedMetadataPath(first.Path)); !os.IsNotExist(err) {
+		t.Fatalf("cleanup retained obsolete package provenance: %v", err)
+	}
+	if _, err := readInstalledPackage(updates[0].Path); err != nil {
+		t.Fatalf("cleanup removed active package provenance: %v", err)
 	}
 }
 
@@ -328,6 +342,9 @@ func TestArchiveHashMismatchPreventsInstallation(t *testing.T) {
 	installed := filepath.Join(packagesDir, "example.test", "shared", "1.0.0")
 	if _, err := os.Stat(installed); !os.IsNotExist(err) {
 		t.Fatalf("hash-mismatched package was installed: %v", err)
+	}
+	if _, err := os.Stat(installedMetadataPath(installed)); !os.IsNotExist(err) {
+		t.Fatalf("hash-mismatched package gained provenance: %v", err)
 	}
 	if _, err := ReadRegistry(packagesDir); err != nil {
 		t.Fatalf("registry should remain readable: %v", err)

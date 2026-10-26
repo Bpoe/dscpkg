@@ -82,6 +82,27 @@ jobs:
       - name: Test
         run: go test ${{ matrix.test_args }} ./...
 
+      - name: Test discovery against DSC 3.3.0
+        shell: pwsh
+        run: |
+          $arch = if ((go env GOHOSTARCH) -eq 'arm64') { 'aarch64' } else { 'x86_64' }
+          $target = if ($IsWindows) { 'pc-windows-msvc.zip' } elseif ($IsMacOS) { 'apple-darwin.tar.gz' } else { 'linux.tar.gz' }
+          $name = "DSC-3.3.0-$arch-$target"
+          $stage = Join-Path $env:RUNNER_TEMP 'dsc-3.3.0'
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          $archive = Join-Path $stage $name
+          Invoke-WebRequest "https://github.com/PowerShell/DSC/releases/download/v3.3.0/$name" -OutFile $archive
+          if ($IsWindows) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $stage
+          } else {
+            tar -xzf $archive -C $stage
+            if ($LASTEXITCODE -ne 0) { throw 'DSC extraction failed.' }
+          }
+          $executable = if ($IsWindows) { 'dsc.exe' } else { 'dsc' }
+          $dsc = Join-Path $stage $executable
+          "DSC_TEST_BIN=$dsc" >> $env:GITHUB_ENV
+          ./tests/test-discovery.ps1 -DscPath $dsc
+
       - name: Test release safeguards
         shell: pwsh
         run: |
@@ -136,10 +157,11 @@ jobs:
         shell: bash
         run: |
           mkdir -p "$DSCPKG_LOG_DIRECTORY"
-          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" \
+          sudo env GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_ENVIRONMENT="$RUNNER_ENVIRONMENT" DSC_TEST_BIN="$DSC_TEST_BIN" \
             bash packaging/linux/test-install.sh --disposable deb "$RELEASE_VERSION" \
             "$DIST_DIR" "$PWD/dscpkg" "$FIXTURE_DIR" "$DSCPKG_LOG_DIRECTORY"
           docker run --rm -e GITHUB_ACTIONS -e RUNNER_ENVIRONMENT \
+            -e DSC_TEST_BIN=/dsc/dsc -v "$(dirname "$DSC_TEST_BIN"):/dsc:ro" \
             -v "$PWD:/src:ro" -v "$DIST_DIR:/assets:ro" -v "$FIXTURE_DIR:/fixtures:ro" \
             -v "$DSCPKG_LOG_DIRECTORY:/logs" fedora:44 \
             bash -c 'dnf -y install diffutils && exec bash /src/packaging/linux/test-install.sh --disposable rpm "$@"' \
