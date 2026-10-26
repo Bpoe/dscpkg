@@ -33,6 +33,9 @@ func integrationResourceScenario(t *testing.T, dsc, cli, temp, repository string
 		if !bytes.Contains(result[field], []byte(expected)) {
 			t.Fatalf("%s missing %s in %s: %s", operation, expected, field, output)
 		}
+		if bytes.Contains(result[field], []byte(`"_name"`)) {
+			t.Fatalf("%s returned Export-only _name: %s", operation, output)
+		}
 		return output
 	}
 	assertState("get", input, "actualState", `"state":"missing"`)
@@ -89,11 +92,13 @@ resources:
 	export := run(dsc, "resource", "export", "--resource", "DscPkg/Resource", "-o", "json")
 	var exported struct {
 		Resources []struct {
+			Name       string `json:"name"`
 			Type       string `json:"type"`
 			Properties struct {
-				Resource string `json:"resource"`
-				Version  string `json:"version"`
-				State    string `json:"state"`
+				Resource string          `json:"resource"`
+				Version  string          `json:"version"`
+				State    string          `json:"state"`
+				Name     json.RawMessage `json:"_name"`
 			} `json:"properties"`
 		} `json:"resources"`
 	}
@@ -101,13 +106,24 @@ resources:
 		t.Fatalf("DSC Export must return two schema-validated instances: %s %v", export, err)
 	}
 	for _, resource := range exported.Resources {
-		if resource.Type != "DscPkg/Resource" || resource.Properties.Version != "1.0.0" || resource.Properties.State != "installed" {
+		if resource.Type != "DscPkg/Resource" || resource.Properties.Version != "1.0.0" || resource.Properties.State != "installed" ||
+			resource.Name != resource.Properties.Resource+"@"+resource.Properties.Version || len(resource.Properties.Name) != 0 {
 			t.Fatalf("invalid exported resource: %+v", resource)
 		}
 	}
 	first := run(cli, "resource", "export")
 	if !bytes.Equal(first, run(cli, "resource", "export")) || bytes.Count(first, []byte("\n")) != 2 {
 		t.Fatalf("Export must produce deterministic JSON Lines: %s", first)
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(first), []byte("\n")) {
+		var instance struct {
+			Name     string `json:"_name"`
+			Resource string `json:"resource"`
+			Version  string `json:"version"`
+		}
+		if err := json.Unmarshal(line, &instance); err != nil || instance.Name != instance.Resource+"@"+instance.Version {
+			t.Fatalf("Export instance name must be resource@version: %s %v", line, err)
+		}
 	}
 	// Force DSC to validate every exported instance as input, including observed fields.
 	assertConfigurationSuccess(t, run(dsc, "config", "test", "--input", string(export), "-o", "json"), 2)

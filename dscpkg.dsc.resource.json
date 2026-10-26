@@ -58,6 +58,11 @@
         "package": {"type": "string", "readOnly": true},
         "packageVersion": {"type": "string", "readOnly": true},
         "path": {"type": "string", "readOnly": true},
+        "_name": {
+          "type": "string",
+          "readOnly": true,
+          "description": "Export-only resource@version name, consumed by DSC as the configuration instance name."
+        },
         "_inDesiredState": {"type": "boolean", "readOnly": true}
       }
     }

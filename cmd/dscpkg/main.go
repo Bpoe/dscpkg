@@ -205,7 +205,13 @@ func runResource(args []string, stdin io.Reader, stdout, stderr io.Writer) error
 			return err
 		}
 		for _, resource := range resources {
-			if err := encoder.Encode(resource); err != nil {
+			instance := struct {
+				Name string `json:"_name"`
+				dscpkg.ResourceState
+			}{
+				Name: resource.Resource + "@" + resource.Version, ResourceState: resource,
+			}
+			if err := encoder.Encode(instance); err != nil {
 				return err
 			}
 		}

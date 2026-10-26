@@ -121,6 +121,10 @@ then an array of differing property names. Export needs no input and emits one
 `DscPkg/Resource` instance per installed resource type/exact-version pair, in
 deterministic, deduplicated JSON Lines. It includes unregistered resources from
 shared packages, never contacts repositories, and does not modify the store.
+Only Export adds `_name`, using the existing resource type and exact version
+directly, for example `"DscExtras.Linux/groups@0.1.1"`. DSC uses this as the
+configuration instance name and removes `_name` from the generated properties.
+Get, Test, and Set do not emit `_name`.
 Use `dsc resource export --resource DscPkg/Resource` to obtain a DSC configuration.
 Export filtering is disabled.
 
