@@ -183,3 +183,51 @@ func TestPublishHelpListsPublishingFlags(t *testing.T) {
 		}
 	}
 }
+
+func TestResourceCommands(t *testing.T) {
+	t.Setenv("DSCPKG_PACKAGES_DIR", filepath.Join(t.TempDir(), "absent"))
+	for _, test := range []struct {
+		operation, input, output, errorText string
+	}{
+		{"get", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing"}` + "\n", ""},
+		{"test", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":false}` + "\n" + `["state"]` + "\n", ""},
+		{"test", `{"resource":"Example/One","state":"missing"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":true}` + "\n[]\n", ""},
+		{"export", "", "", ""},
+		{"export", "not read", "", ""},
+		{"get", "{}", "", "invalid resource"},
+		{"get", "null", "", "invalid resource"},
+		{"get", `{"resource":"Example/One","unknown":true}`, "", "unknown field"},
+		{"test", `{"resource":"Example/One","state":"absent"}`, "", "invalid resource state"},
+		{"get", `{"resource":"Example/One"} {}`, "", "exactly one"},
+		{"set", `{"resource":"Example/One"}`, "", "repository"},
+		{"set", `{"resource":"Example/One","state":"missing"}`, "", "removal is not supported"},
+	} {
+		t.Run(test.operation+test.input, func(t *testing.T) {
+			var out, diagnostics bytes.Buffer
+			err := runResource([]string{test.operation}, strings.NewReader(test.input), &out, &diagnostics)
+			if test.errorText != "" {
+				if err == nil || !strings.Contains(err.Error(), test.errorText) {
+					t.Fatalf("err=%v want=%q", err, test.errorText)
+				}
+			} else if err != nil {
+				t.Fatal(err)
+			}
+			if out.String() != test.output || diagnostics.Len() != 0 {
+				t.Fatalf("stdout=%q stderr=%q", out.String(), diagnostics.String())
+			}
+		})
+	}
+}
+
+func TestPackageStoreOverride(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "shared store")
+	t.Setenv("DSCPKG_PACKAGES_DIR", directory)
+	if got := defaultPackagesDir(); got != directory {
+		t.Fatalf("default store=%q want=%q", got, directory)
+	}
+	var stdout, stderr bytes.Buffer
+	if err := runResource([]string{"get", "--packages-dir", filepath.Join(t.TempDir(), "explicit")},
+		strings.NewReader(`{"resource":"Example/One"}`), &stdout, &stderr); err != nil {
+		t.Fatal(err)
+	}
+}

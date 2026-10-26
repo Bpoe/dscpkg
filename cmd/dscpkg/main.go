@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -33,6 +34,9 @@ func run(args []string, stdout, stderr *os.File) error {
 		return usageError()
 	}
 	command := args[0]
+	if command == "resource" {
+		return runResource(args[1:], os.Stdin, stdout, stderr)
+	}
 	flags := flag.NewFlagSet(command, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var packagesDir *string
@@ -47,7 +51,7 @@ func run(args []string, stdout, stderr *os.File) error {
 		flags.Var(&repositories, "repository", "repository origin, in precedence order (repeatable)")
 		flags.StringVar(&platform, "platform", currentPlatform(), "target os_arch platform")
 		flags.StringVar(&resource, "resource", "", "resource type (Namespace/name)")
-		flags.StringVar(&version, "version", "", "resource version")
+		flags.StringVar(&version, "version", "", "exact resource version (default: latest compatible stable)")
 		flags.StringVar(&selectedPackageVersion, "package-version", "", "exact package version (optional)")
 	case "update", "cleanup":
 		packagesDir = flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
@@ -94,8 +98,8 @@ func run(args []string, stdout, stderr *os.File) error {
 		client.Platform = platform
 		switch command {
 		case "install":
-			if resource == "" || version == "" {
-				return errors.New("install requires --resource and --version")
+			if resource == "" {
+				return errors.New("install requires --resource")
 			}
 			result, err := client.Install(resource, version, selectedPackageVersion)
 			if err != nil {
@@ -158,14 +162,86 @@ func printJSON(out *os.File, value any) error {
 }
 
 func usageError() error {
-	return errors.New("usage: dscpkg <install|update|cleanup|publish|list|remove|env|discover> [flags]")
+	return errors.New("usage: dscpkg <install|update|cleanup|publish|list|remove|env|discover|resource> [flags]")
 }
 
 func defaultPackagesDir() string {
+	if dir := os.Getenv("DSCPKG_PACKAGES_DIR"); dir != "" {
+		return dir
+	}
 	if dir, err := os.UserCacheDir(); err == nil {
 		return filepath.Join(dir, "dscpkg", "packages")
 	}
+
 	return filepath.Join(".", "packages")
+}
+
+func runResource(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
+		return errors.New("usage: dscpkg resource <get|test|set|export> [--packages-dir DIR]")
+	}
+	operation := args[0]
+	switch operation {
+	case "get", "test", "set", "export":
+	default:
+		return fmt.Errorf("unknown resource operation %q", operation)
+	}
+	flags := flag.NewFlagSet("resource "+operation, flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	packagesDir := flags.String("packages-dir", defaultPackagesDir(), "package cache directory")
+	if err := flags.Parse(args[1:]); errors.Is(err, flag.ErrHelp) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("resource operations do not accept positional arguments")
+	}
+	client := dscpkg.NewClient(*packagesDir, nil)
+	encoder := json.NewEncoder(stdout)
+	if operation == "export" {
+		resources, err := client.InstalledResources(stderr)
+		if err != nil {
+			return err
+		}
+		for _, resource := range resources {
+			if err := encoder.Encode(resource); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	var desired dscpkg.ResourceState
+	decoder := json.NewDecoder(io.LimitReader(stdin, 16<<20+1))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&desired); err != nil {
+		return fmt.Errorf("read resource properties: %w", err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return errors.New("expected exactly one resource properties object")
+	}
+	var actual dscpkg.ResourceState
+	var differences []string
+	var err error
+	switch operation {
+	case "get":
+		actual, err = client.GetResource(desired, stderr)
+	case "test":
+		actual, differences, err = client.TestResource(desired, stderr)
+	case "set":
+		actual, err = client.SetResource(desired, stderr)
+	}
+	if err != nil {
+		return err
+	}
+	if err := encoder.Encode(actual); err != nil {
+		return err
+	}
+	if operation == "test" {
+		return encoder.Encode(differences)
+	}
+	return nil
 }
 
 func currentPlatform() string {

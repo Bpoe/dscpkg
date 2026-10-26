@@ -1,0 +1,65 @@
+{
+  "$schema": "https://aka.ms/dsc/schemas/v3/bundled/resource/manifest.json",
+  "type": "DscPkg/Resource",
+  "version": "0.1.0",
+  "description": "Ensure a DSC resource is installed in the local dscpkg package store.",
+  "get": {
+    "executable": "dscpkg",
+    "args": ["resource", "get"],
+    "input": "stdin"
+  },
+  "test": {
+    "executable": "dscpkg",
+    "args": ["resource", "test"],
+    "input": "stdin",
+    "return": "stateAndDiff"
+  },
+  "set": {
+    "executable": "dscpkg",
+    "args": ["resource", "set"],
+    "input": "stdin",
+    "implementsPretest": true,
+    "return": "state"
+  },
+  "export": {
+    "executable": "dscpkg",
+    "args": ["resource", "export"],
+    "input": "stdin",
+    "supportsFiltering": false
+  },
+  "schema": {
+    "embedded": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "required": ["resource"],
+      "additionalProperties": false,
+      "properties": {
+        "resource": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$",
+          "description": "DSC resource identity (Namespace/name)."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
+          "description": "Exact resource version; omit to accept any installed version."
+        },
+        "state": {
+          "type": "string",
+          "enum": ["installed", "missing"],
+          "default": "installed",
+          "description": "Only installed is supported for Set; missing is an observed state."
+        },
+        "repositories": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "description": "Repository origins in precedence order, needed only when installation is necessary."
+        },
+        "package": {"type": "string", "readOnly": true},
+        "packageVersion": {"type": "string", "readOnly": true},
+        "path": {"type": "string", "readOnly": true},
+        "_inDesiredState": {"type": "boolean", "readOnly": true}
+      }
+    }
+  }
+}

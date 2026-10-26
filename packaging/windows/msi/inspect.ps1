@@ -29,7 +29,7 @@ try {
 }
 $files = @(Read-MsiTable $msi 'SELECT `FileName` FROM `File`' @('Name'))
 $names = @($files | ForEach-Object { ($_.Name -split '\|')[-1] })
-Assert-Equal (($names | Sort-Object) -join ',') 'dscpkg.dsc.extension.json,dscpkg.exe,LICENSE,README.md' 'MSI file set'
+Assert-Equal (($names | Sort-Object) -join ',') 'dscpkg.dsc.extension.json,dscpkg.dsc.resource.json,dscpkg.exe,LICENSE,README.md' 'MSI file set'
 $directories = @(Read-MsiTable $msi 'SELECT `Directory_Parent`, `DefaultDir` FROM `Directory` WHERE `Directory` = ''INSTALLFOLDER''' @('Parent', 'Name'))
 Assert-Equal $directories[0].Parent 'ProgramFiles64Folder' 'MSI destination parent'
 Assert-Equal (($directories[0].Name -split '\|')[-1]) 'dscpkg' 'MSI destination directory'
@@ -61,8 +61,10 @@ try {
         Assert-Equal (Get-SHA256 (Join-Path $binaries[0].DirectoryName $file)) `
             (Get-SHA256 (Join-Path $repo $file)) "MSI $file"
     }
-    Assert-Equal (Get-SHA256 (Join-Path $binaries[0].DirectoryName 'dscpkg.dsc.extension.json')) `
-        (Get-SHA256 (Join-Path $repo 'dscpkg.dsc.extension.json')) 'MSI discovery extension'
+    foreach ($manifest in @('dscpkg.dsc.extension.json', 'dscpkg.dsc.resource.json')) {
+        Assert-Equal (Get-SHA256 (Join-Path $binaries[0].DirectoryName $manifest)) `
+            (Get-SHA256 (Join-Path $repo $manifest)) "MSI $manifest"
+    }
     Invoke-Checked $binaries[0].FullName @('publish', '-h')
     $verified = $true
 } finally {

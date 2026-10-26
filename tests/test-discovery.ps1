@@ -14,6 +14,11 @@ try {
     if (-not (Get-Content -LiteralPath ./dscpkg.dsc.extension.json -Raw | Test-Json -Schema ($schema -join "`n"))) {
         throw 'The discovery extension does not validate against the DSC 3.3.0 schema.'
     }
+    $schema = & $dsc schema --type resource-manifest --output-format json
+    if ($LASTEXITCODE -ne 0) { throw 'Could not export the DSC resource manifest schema.' }
+    if (-not (Get-Content -LiteralPath ./dscpkg.dsc.resource.json -Raw | Test-Json -Schema ($schema -join "`n"))) {
+        throw 'The resource manifest does not validate against the DSC 3.3.0 schema.'
+    }
     $env:DSC_TEST_BIN = $dsc
     & go test -tags=integration -count=1 -v ./tests
     if ($LASTEXITCODE -ne 0) { throw 'DSC discovery integration tests failed.' }

@@ -37,40 +37,62 @@ func (c *Client) installPackage(repo *repository, resolved packageResolution) (b
 	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return false, err
 	}
-	infoURL, err := packageDocumentURL(repo.discovery.Packages, resolved.Package, resolved.PackageVersion)
+	archive, archiveURL := resolved.archive, resolved.archiveURL
+	if archive == nil {
+		selected, uri, err := c.packageArchive(repo, resolved.Package, resolved.PackageVersion)
+		if errors.Is(err, errNoCompatiblePackage) {
+			return false, fmt.Errorf("package %s %s has no archive for platform %s", resolved.Package, resolved.PackageVersion, c.Platform)
+		}
+		if err != nil {
+			return false, err
+		}
+		archive, archiveURL = &selected, uri
+	}
+	return c.downloadPackage(resolved, *archive, archiveURL)
+}
+
+func (c *Client) packageArchive(repo *repository, packageName, version string) (Archive, string, error) {
+	infoURL, err := packageDocumentURL(repo.discovery.Packages, packageName, version)
 	if err != nil {
-		return false, err
+		return Archive{}, "", err
 	}
 	info, err := c.getDocument(infoURL)
 	if err != nil {
-		return false, err
+		return Archive{}, "", err
 	}
-	if err := c.verifyDocument(repo, namespace(resolved.Package), infoURL, info); err != nil {
-		return false, fmt.Errorf("package descriptor %s signature check: %w", infoURL, err)
+	if err := c.verifyDocument(repo, namespace(packageName), infoURL, info); err != nil {
+		return Archive{}, "", fmt.Errorf("package descriptor %s signature check: %w", infoURL, err)
 	}
 	var descriptor PackageDescriptor
 	if err := json.Unmarshal(info.body, &descriptor); err != nil {
-		return false, fmt.Errorf("parse package descriptor %s: %w", infoURL, err)
+		return Archive{}, "", fmt.Errorf("parse package descriptor %s: %w", infoURL, err)
+	}
+	if descriptor.Archives == nil {
+		return Archive{}, "", fmt.Errorf("package descriptor %s has no archives object", infoURL)
 	}
 	archive, exists := descriptor.Archives[c.Platform]
 	if !exists {
-		return false, fmt.Errorf("package %s %s has no archive for platform %s", resolved.Package, resolved.PackageVersion, c.Platform)
+		return Archive{}, "", errNoCompatiblePackage
 	}
 	if strings.TrimSpace(archive.URL) == "" {
-		return false, errors.New("package archive descriptor has no URL")
+		return Archive{}, "", errors.New("package archive descriptor has no URL")
 	}
 	if len(archive.Hashes) == 0 {
-		return false, errors.New("package archive descriptor has no hashes")
+		return Archive{}, "", errors.New("package archive descriptor has no hashes")
 	}
 	for _, entry := range archive.Hashes {
 		if _, _, err := splitArchiveHash(entry); err != nil {
-			return false, err
+			return Archive{}, "", err
 		}
 	}
 	archiveURL, err := resolveURL(infoURL, archive.URL)
 	if err != nil {
-		return false, err
+		return Archive{}, "", err
 	}
+	return archive, archiveURL, nil
+}
+
+func (c *Client) downloadPackage(resolved packageResolution, archive Archive, archiveURL string) (bool, error) {
 	parent := filepath.Dir(resolved.Path)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return false, err

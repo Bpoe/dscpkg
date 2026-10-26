@@ -19,9 +19,15 @@ On Windows, use `go build -o dscpkg.exe ./cmd/dscpkg`.
 
 Pass repository origins in precedence order with repeatable `--repository` flags.
 A bare host defaults to HTTPS; specify `http://` explicitly for local testing.
-For each resource, the first repository catalog containing that exact resource
-type and version is selected. A later repository is not used to recover from an
-integrity or signature error in the selected repository.
+For each resource, the first repository that can satisfy the request is selected.
+With `--version`, the resource version is exact. Without it, dscpkg selects the
+newest compatible stable resource version **within that repository**, not the
+newest version across all repositories. Numeric version components and prerelease
+precedence are compared numerically, not lexically. Latest selection excludes
+prereleases and resource versions without a package archive for the target
+OS/architecture; it also considers older package versions when necessary.
+A later repository or older resource version is never used to bypass malformed
+metadata, integrity failures, or signing errors.
 
 ```sh
 dscpkg install \
@@ -31,16 +37,133 @@ dscpkg install \
   --version 2026-06-30-preview
 ```
 
-`--packages-dir` selects the package cache and registry directory. By default it
+`--packages-dir` selects the package cache and registry directory. All commands,
+including discovery and DSC resource operations, also honor
+`DSCPKG_PACKAGES_DIR`; the flag takes precedence. Without either override it
 uses `<user cache directory>/dscpkg/packages`. `--platform` overrides the detected
 `os_arch` archive key, for example `linux_amd64`.
+
+## Declare installed resources with DscPkg/Resource
+
+DSC **3.3.0** can discover the native `DscPkg/Resource` resource directly beside
+the dscpkg executable. It does not need to install itself through dscpkg.
+Use [`examples/00-resources.yaml`](examples/00-resources.yaml) as a dependency
+configuration:
+
+```yaml
+$schema: https://aka.ms/dsc/schemas/v3/bundled/config/document.json
+resources:
+  - name: LinuxGroups
+    type: DscPkg/Resource
+    properties:
+      resource: DscExtras.Linux/groups
+      state: installed
+      repositories:
+        - https://bpoe.github.io/dsc-extras/
+  - name: LinuxServices
+    type: DscPkg/Resource
+    properties:
+      resource: DscExtras.Linux/services
+      state: installed
+      repositories:
+        - https://bpoe.github.io/dsc-extras/
+```
+
+Run `sudo dsc config set --file 00-resources.yaml` on compatible Linux.
+The first instance installs the latest compatible shared `dscextras/linux`
+package; the second recognizes its services manifest without another download,
+registration, or executable copy. Subsequent configurations can use both resources
+through `DscPkg/Discover`, with no per-package `DSC_RESOURCE_PATH` changes.
+Use the same identity for installation and subsequent DSC runs.
+
+The instance properties are:
+
+- `resource` (required): DSC type, such as `DscExtras.Linux/groups`.
+- `version` (optional): exact resource version. Add `version: 0.0.1` to pin it.
+- `state` (optional): defaults to `installed`. `missing` is also an observed state;
+  Set rejects removal requests, without deleting files or registrations.
+- `repositories` (optional): ordered origins used only when installation is
+  necessary. No implicit repository is configured; supply these when applying
+  a configuration to an empty store.
+- `package`, `packageVersion`, `path`: read-only observed package identity,
+  package version, and absolute installation directory.
+
+`version` and `packageVersion` are independent: the latter describes the package
+providing the resource, not the desired resource version. CLI
+`--package-version` remains an independent exact selector.
+
+Get reports the exact installed version, or `state: missing`. Without a version,
+it reports the newest locally installed matching version. Test uses that same
+local inspection and reports `_inDesiredState` and differing properties using
+DSC's `stateAndDiff` contract. **Neither Get nor Test contacts repositories,
+creates a store, or writes state.** A compatible installation of any version
+satisfies an unversioned desired state, including one supplied by a shared package
+without an individual registry entry.
+
+Set first checks local compliance, then calls the same `Client.Install` operation
+as `dscpkg install` only when needed. **Latest-on-install is not automatic
+updating**: an unversioned Set never upgrades a compliant installed resource,
+even if repositories publish newer versions. Repeated Set works offline and
+does not download again. Pin versions for reproducible installation. Older
+package versions remain installed; no implicit cleanup runs.
+
+The underlying commands accept properties as one JSON object on stdin:
+
+```sh
+echo '{"resource":"DscExtras.Linux/groups"}' | dscpkg resource get
+echo '{"resource":"DscExtras.Linux/groups"}' | dscpkg resource test
+echo '{"resource":"DscExtras.Linux/groups","repositories":["https://bpoe.github.io/dsc-extras/"]}' | dscpkg resource set
+dscpkg resource export
+```
+
+Test returns two JSON Lines: the observed state including `_inDesiredState`,
+then an array of differing property names. Export needs no input and emits one
+`DscPkg/Resource` instance per installed resource type/exact-version pair, in
+deterministic, deduplicated JSON Lines. It includes unregistered resources from
+shared packages, never contacts repositories, and does not modify the store.
+Use `dsc resource export --resource DscPkg/Resource` to obtain a DSC configuration.
+Export filtering is disabled.
+
+Get/Test/Export parse JSON and YAML native manifests and the `resources` entries
+of `.dsc.manifests.*` lists; a list file is not itself a resource instance.
+Adapter-backed entries (`.dsc.adaptedresource.*` or `requireAdapter`) are
+deliberately excluded with a diagnostic: an offline inventory cannot establish
+whether their external adapter is available. Discovery still advertises those
+files unchanged for DSC to handle. Invalid native manifest identities or corrupt
+platform provenance fail explicitly; legacy packages without provenance are
+skipped with reinstall guidance, as in discovery.
+
+Export cannot recover repository origins reliably and therefore omits them.
+When reapplying exported configuration to a machine without those resources,
+add `repositories` to the exported instances. Observed package/path fields are
+not desired-state constraints.
+
+### dscd and persistent DSC server discovery
+
+The isolated DSC 3.3.0 integration test runs `00-resources.yaml` and then a
+configuration using a newly installed resource **in the same `dsc server`
+process**. Default `preDeployment` discovery retains stale resource lookup state
+and the second configuration fails with `Resource not found`. Add the following
+to the **consuming configuration** to refresh discovery:
+
+```yaml
+directives:
+  resourceDiscovery: duringDeployment
+```
+
+The same-server test succeeds with this directive. Separate DSC CLI processes
+already see newly installed packages without it. This change does not modify
+dscd or its configuration ordering. It implements declarative local dependencies,
+not Steve's proposed installation extension, remote discovery, or DSC's future
+automatic resource-acquisition protocol.
 
 ## Discover installed resources with DSC
 
 With DSC **3.3.0 or later**, dscpkg's `DscPkg/Discover` extension exposes locally
 installed packages without adding every package directory to `DSC_RESOURCE_PATH`.
 The native installers and release archives place `dscpkg.dsc.extension.json`
-alongside the executable. DSC finds that manifest through PATH and runs
+and `dscpkg.dsc.resource.json` alongside the executable. DSC finds the extension
+manifest through PATH and runs
 `dscpkg discover`. Verify the extension and resources in a new terminal:
 
 ```sh
@@ -61,7 +184,7 @@ The public example package can be installed on Linux with:
 
 ```sh
 dscpkg install --repository https://bpoe.github.io/dsc-extras/ \
-  --resource DscExtras.Linux/groups --version 0.0.1
+  --resource DscExtras.Linux/groups
 dsc resource list 'DscExtras.Linux/*'
 dsc resource get --resource DscExtras.Linux/groups --input '{"name":"root"}'
 dsc resource get --resource DscExtras.Linux/services \
@@ -111,7 +234,7 @@ move the affected version aside and reinstall to repair it.
 
 ### Installation scope and package-store selection
 
-Machine-wide MSI/DEB/RPM installation registers the **CLI and extension**, not a
+Machine-wide MSI/DEB/RPM installation registers the **CLI, extension, and resource**, not a
 machine-wide resource store. By default discovery uses the invoking identity's
 `<user cache directory>/dscpkg/packages`: `%LOCALAPPDATA%\dscpkg\packages` on
 Windows, `${XDG_CACHE_HOME:-$HOME/.cache}/dscpkg/packages` on Linux, and
@@ -119,12 +242,14 @@ Windows, `${XDG_CACHE_HOME:-$HOME/.cache}/dscpkg/packages` on Linux, and
 does not expose them to another account or service identity. For example, dscd
 running as LocalSystem or root does not use an interactive user's store.
 
-For a custom or shared store, install packages with `--packages-dir` and configure
-one copy of the extension manifest's `discover.args` as
-`["discover", "--packages-dir", "/absolute/path/to/packages"]` (use a correctly
-JSON-escaped Windows path on Windows). Place that copy in a DSC search directory
-and avoid competing copies of `DscPkg/Discover`. Use an administrator-owned custom
-location rather than modifying installer-owned files, which upgrades replace.
+For a custom or shared store, set `DSCPKG_PACKAGES_DIR` in the environment of
+both the CLI and the DSC/dscd process. This selects one consistent store for
+installation, resource state, and extension discovery without editing manifests.
+For example, an administrator can set it to `/var/lib/dscpkg/packages` for a
+system service. This is an explicit scope override, not a new default or layout.
+An interactive user and `sudo`/root may have different environments, so configure
+the variable for the service identity as well. Do not modify installer-owned
+manifests, which upgrades replace.
 Every invoking identity needs access to the store and executable; DSC executes
 package code with that identity's permissions. Share stores only with trusted
 writers.
@@ -134,20 +259,26 @@ writers.
 DSC 3.3.0 searches PATH for manifests when `DSC_RESOURCE_PATH` is **unset**.
 If that variable is explicitly set, DSC searches those directories instead of
 PATH for the extension manifest. Keep any existing entries, but also include
-the directory containing `dscpkg.dsc.extension.json` once (for example,
+the directory containing both dscpkg manifests once (for example,
 `%ProgramFiles%\dscpkg` or `/usr/bin`). The `dscpkg` executable must remain on PATH.
 You do **not** need to add individual package directories. `DSC_RESTRICTED_PATH`
 and DSC resource-path policy/settings can similarly restrict discovery; the
 extension and its executable must be allowed by that configuration.
 
-This is strictly **local discovery** of already installed packages. It is not
-remote resource discovery or automatic installation. Resources must first be
-installed explicitly with `dscpkg install`; no future remote-install protocol is
-implemented.
+This extension is strictly **local discovery** of already installed packages.
+Install dependencies explicitly with `dscpkg install` or declare them with
+`DscPkg/Resource`; no future remote-install protocol is implemented.
 
 ## Commands
 
-Install a resource and optionally select an exact package version:
+Install the latest compatible stable resource version:
+
+```sh
+dscpkg install --repository https://resources.example.com \
+  --resource Microsoft.GuestConfiguration/users
+```
+
+Or pin an exact resource version and optionally an independent exact package version:
 
 ```sh
 dscpkg install --repository https://resources.example.com \
@@ -327,12 +458,14 @@ CI also downloads DSC 3.3.0 into runner-local temporary directories and runs:
 ./tests/test-discovery.ps1 -DscPath /path/to/dsc
 ```
 
-This validates the extension against the official bundled schema exported by
+This validates both manifests against the official bundled schemas exported by
 that engine and runs `go test -tags=integration -count=1 -v ./tests`. Tests build
 safe shared-executable resources, publish to a loopback HTTP server, install
-through the CLI into an isolated per-user store, and exercise extension listing,
-resource listing/invocation, platform exclusion, fresh-process discovery, and
-explicit `DSC_RESOURCE_PATH` bootstrap. They never install DSC system-wide or
+through the CLI and native DSC resource into isolated per-user stores, and
+exercise all four resource operations, instance-schema validation of Export,
+one-download shared-package installation, offline idempotence, platform exclusion,
+fresh-process discovery, same-server `preDeployment`/`duringDeployment` behavior,
+and explicit `DSC_RESOURCE_PATH` bootstrap. They never install DSC system-wide or
 change the developer's package store. To use an existing DSC 3.3.0 directly, set
 `DSC_TEST_BIN` and run the tagged Go tests.
 
@@ -349,11 +482,12 @@ Releases include Linux AMD64/ARM64 and Windows AMD64 archives, a macOS archive f
 native architecture of the macOS CI runner, Windows MSI, Linux AMD64/ARM64 DEB/RPM, and
 `SHA256SUMS`. macOS filenames use Go's `darwin` platform name and the actual
 `amd64` or `arm64` build architecture. Extract an archive and put its `bin`
-directory on PATH, keeping **both** the executable and
-`dscpkg.dsc.extension.json` together. This also applies to manual ZIP installation:
-copy both files from `bin` into a directory on PATH, open a new terminal, and
-verify with `dsc extension list DscPkg/Discover`. For a source build, copy the
-repository's `dscpkg.dsc.extension.json` alongside the built executable. If
+directory on PATH, keeping **all three files** together: `dscpkg` (`dscpkg.exe`
+on Windows), `dscpkg.dsc.extension.json`, and `dscpkg.dsc.resource.json`.
+This also applies to manual ZIP installation: copy all three files from `bin`
+into a directory on PATH, open a new terminal, and verify with
+`dsc extension list DscPkg/Discover` and `dsc resource list DscPkg/Resource`.
+For a source build, copy both repository manifests alongside the executable. If
 `DSC_RESOURCE_PATH` is set, follow the bootstrap instructions above. Alternatively,
 use the appropriate native installer:
 
@@ -374,13 +508,13 @@ msiexec /i dscpkg-v1.2.3-windows-amd64.msi /qn /norestart
 
 The MSI installs to `%ProgramFiles%\dscpkg` and adds that directory to the system
 PATH; open a new terminal after installation. DEB/RPM install `/usr/bin/dscpkg`.
-Both install the discovery extension manifest alongside the executable.
+Both install the discovery extension and resource manifests alongside the executable.
 These are machine-wide CLI installations, not services. No DSC runtime is
 bundled or required to install dscpkg.
 
 Use Installed apps on Windows, `sudo apt remove dscpkg`, or `sudo dnf remove
-dscpkg` to uninstall. Upgrades replace the executable and extension manifest;
-uninstall removes both and the installer's managed PATH entry, but never deletes users'
+dscpkg` to uninstall. Upgrades replace the executable and both manifests;
+uninstall removes all three and the installer's managed PATH entry, but never deletes users'
 downloaded resource packages, registries, or caches. Linux follows the native
 package manager's version ordering; MSI blocks downgrades.
 

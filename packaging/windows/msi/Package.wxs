@@ -25,11 +25,15 @@
         <Component Id="Readme" Guid="*" Bitness="always64">
           <File Source="$(sys.SOURCEFILEDIR)..\..\..\README.md" KeyPath="yes" />
         </Component>
+        <Component Id="ResourceManifest" Guid="*" Bitness="always64">
+          <File Source="$(sys.SOURCEFILEDIR)..\..\..\dscpkg.dsc.resource.json" KeyPath="yes" />
+        </Component>
       </Directory>
     </StandardDirectory>
     <Feature Id="Complete" Title="dscpkg" Level="1">
       <ComponentRef Id="Executable" />
       <ComponentRef Id="DiscoveryExtension" />
+      <ComponentRef Id="ResourceManifest" />
       <ComponentRef Id="License" />
       <ComponentRef Id="Readme" />
     </Feature>

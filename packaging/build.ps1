@@ -24,7 +24,9 @@ $executable = if ($IsWindows) { 'dscpkg.exe' } else { 'dscpkg' }
 try {
     New-Item -ItemType Directory -Path (Join-Path $package 'bin') -Force | Out-Null
     Copy-Item -LiteralPath $binary -Destination (Join-Path $package "bin/$executable")
-    Copy-Item -LiteralPath (Join-Path $repo 'dscpkg.dsc.extension.json') -Destination (Join-Path $package 'bin')
+    foreach ($manifest in @('dscpkg.dsc.extension.json', 'dscpkg.dsc.resource.json')) {
+        Copy-Item -LiteralPath (Join-Path $repo $manifest) -Destination (Join-Path $package 'bin')
+    }
     foreach ($file in @('README.md', 'LICENSE')) {
         Copy-Item -LiteralPath (Join-Path $repo $file) -Destination $package
     }

@@ -79,6 +79,8 @@ type packageResolution struct {
 	PackageVersion string `json:"packageVersion"`
 	Digest         string `json:"digest"`
 	Path           string `json:"path"`
+	archive        *Archive
+	archiveURL     string
 }
 
 func normalizeResource(resource string) (string, error) {

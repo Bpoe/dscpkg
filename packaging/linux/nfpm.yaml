@@ -20,6 +20,12 @@ contents:
       mode: 0644
       owner: root
       group: root
+  - src: dscpkg.dsc.resource.json
+    dst: /usr/bin/dscpkg.dsc.resource.json
+    file_info:
+      mode: 0644
+      owner: root
+      group: root
   - src: README.md
     dst: /usr/share/doc/dscpkg/README.md
     file_info:

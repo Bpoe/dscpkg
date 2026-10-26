@@ -30,6 +30,7 @@ case "$format" in
 esac
 [[ ! -e /usr/bin/dscpkg ]]
 [[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
+[[ ! -e /usr/bin/dscpkg.dsc.resource.json ]]
 cache="$HOME/.cache/dscpkg/packages"
 [[ ! -e "$cache" ]]
 mkdir -p "$cache/.dscpkg" "$cache/test-resource"
@@ -57,8 +58,11 @@ verify_install() {
     [[ $(command -v dscpkg) -ef /usr/bin/dscpkg ]]
     cmp "$1" /usr/bin/dscpkg
     cmp "$root/dscpkg.dsc.extension.json" /usr/bin/dscpkg.dsc.extension.json
+    cmp "$root/dscpkg.dsc.resource.json" /usr/bin/dscpkg.dsc.resource.json
     env -u DSC_RESOURCE_PATH -u DSC_RESTRICTED_PATH "$DSC_TEST_BIN" --ignore-settings-file \
         extension list DscPkg/Discover -o json | grep -F '"type":"DscPkg/Discover"'
+    env -u DSC_RESOURCE_PATH -u DSC_RESTRICTED_PATH "$DSC_TEST_BIN" --ignore-settings-file \
+        resource list DscPkg/Resource -o json | grep -F '"type":"DscPkg/Resource"'
     dscpkg publish -h
     if [[ $format == deb ]]; then
         # dpkg-query, not Bash, expands this field.
@@ -76,11 +80,13 @@ candidate=$(package_path "$assets" "$version")
 install_package "$candidate"
 verify_install "$binary" "$version"
 rm /usr/bin/dscpkg.dsc.extension.json
+rm /usr/bin/dscpkg.dsc.resource.json
 install_package "$candidate"
 verify_install "$binary" "$version"
 remove_package
 [[ ! -e /usr/bin/dscpkg ]]
 [[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
+[[ ! -e /usr/bin/dscpkg.dsc.resource.json ]]
 preserved
 
 if cmp -s "$fixtures/v1.0.0/dscpkg" "$fixtures/v1.0.1/dscpkg"; then
@@ -90,10 +96,12 @@ fi
 install_package "$(package_path "$fixtures/v1.0.0/assets" 1.0.0)"
 verify_install "$fixtures/v1.0.0/dscpkg" 1.0.0
 printf '{"stale":"upgrade fixture"}\n' > /usr/bin/dscpkg.dsc.extension.json
+printf '{"stale":"upgrade fixture"}\n' > /usr/bin/dscpkg.dsc.resource.json
 install_package "$(package_path "$fixtures/v1.0.1/assets" 1.0.1)"
 verify_install "$fixtures/v1.0.1/dscpkg" 1.0.1
 remove_package
 [[ ! -e /usr/bin/dscpkg ]]
 [[ ! -e /usr/bin/dscpkg.dsc.extension.json ]]
+[[ ! -e /usr/bin/dscpkg.dsc.resource.json ]]
 preserved
 echo "$format install, reinstall, upgrade, uninstall and data retention passed."
