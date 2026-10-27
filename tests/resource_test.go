@@ -18,14 +18,14 @@ import (
 
 func integrationResourceScenario(t *testing.T, dsc, cli, temp, repository string, downloads *atomic.Int64, run func(string, ...string) []byte) {
 	t.Helper()
-	list := integrationObjects(t, run(dsc, "resource", "list", "DscPkg/Resource", "-o", "json"))
-	if len(list) != 1 || list["DscPkg/Resource"] == nil {
+	list := integrationObjects(t, run(dsc, "resource", "list", "DscPkg/resources", "-o", "json"))
+	if len(list) != 1 || list["DscPkg/resources"] == nil {
 		t.Fatalf("resource manifest was not bootstrapped through PATH: %v", list)
 	}
-	input := fmt.Sprintf(`{"resource":"DscPkg.Test/One","state":"installed","repositories":[%q]}`, repository)
+	input := fmt.Sprintf(`{"resource":"DscPkg.Test/One","repositories":[%q]}`, repository)
 	assertState := func(operation, input, field, expected string) []byte {
 		t.Helper()
-		output := run(dsc, "resource", operation, "--resource", "DscPkg/Resource", "--input", input, "-o", "json")
+		output := run(dsc, "resource", operation, "--resource", "DscPkg/resources", "--input", input, "-o", "json")
 		var result map[string]json.RawMessage
 		if err := json.Unmarshal(output, &result); err != nil {
 			t.Fatal(err)
@@ -36,16 +36,19 @@ func integrationResourceScenario(t *testing.T, dsc, cli, temp, repository string
 		if bytes.Contains(result[field], []byte(`"_name"`)) {
 			t.Fatalf("%s returned Export-only _name: %s", operation, output)
 		}
+		if bytes.Contains(result[field], []byte(`"state"`)) {
+			t.Fatalf("%s returned removed state property: %s", operation, output)
+		}
 		return output
 	}
-	assertState("get", input, "actualState", `"state":"missing"`)
-	output := assertState("test", input, "actualState", `"state":"missing"`)
+	assertState("get", input, "actualState", `"resource":"DscPkg.Test/One"`)
+	output := assertState("test", input, "actualState", `"resource":"DscPkg.Test/One"`)
 	var compliance struct {
 		InDesiredState bool     `json:"inDesiredState"`
 		DiffProperties []string `json:"differingProperties"`
 	}
 	if err := json.Unmarshal(output, &compliance); err != nil || compliance.InDesiredState ||
-		len(compliance.DiffProperties) != 1 || compliance.DiffProperties[0] != "state" {
+		len(compliance.DiffProperties) != 1 || compliance.DiffProperties[0] != "version" {
 		t.Fatalf("missing resource should not be compliant: %s %v", output, err)
 	}
 	if output := run(cli, "resource", "export"); len(output) != 0 {
@@ -54,16 +57,14 @@ func integrationResourceScenario(t *testing.T, dsc, cli, temp, repository string
 	config := fmt.Sprintf(`$schema: https://aka.ms/dsc/schemas/v3/bundled/config/document.json
 resources:
   - name: One
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscPkg.Test/One
-      state: installed
       repositories: [%q]
   - name: Two
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscPkg.Test/Two
-      state: installed
       repositories: [%q]
 `, repository, repository)
 	configPath := filepath.Join(temp, "00-resources.yaml")
@@ -76,20 +77,20 @@ resources:
 		t.Fatalf("shared resources require exactly one archive download; got %d", downloads.Load()-before)
 	}
 	installed := downloads.Load()
-	output = assertState("test", input, "actualState", `"state":"installed"`)
+	output = assertState("test", input, "actualState", `"version":"1.0.0"`)
 	if err := json.Unmarshal(output, &compliance); err != nil || !compliance.InDesiredState {
 		t.Fatalf("installed resource should be compliant: %s %v", output, err)
 	}
 	// Invalid repository origins prove that compliant operations do not resolve remotely.
 	offline := `{"resource":"DscPkg.Test/Two","version":"1.0.0","repositories":["invalid://offline"]}`
 	assertState("get", offline, "actualState", `"package":"example/shared"`)
-	assertState("test", offline, "actualState", `"state":"installed"`)
-	assertState("set", offline, "afterState", `"state":"installed"`)
+	assertState("test", offline, "actualState", `"version":"1.0.0"`)
+	assertState("set", offline, "afterState", `"version":"1.0.0"`)
 	run(dsc, "config", "set", "--file", configPath, "-o", "json")
 	if downloads.Load() != installed {
 		t.Fatal("repeat Set downloaded a package")
 	}
-	export := run(dsc, "resource", "export", "--resource", "DscPkg/Resource", "-o", "json")
+	export := run(dsc, "resource", "export", "--resource", "DscPkg/resources", "-o", "json")
 	var exported struct {
 		Resources []struct {
 			Name       string `json:"name"`
@@ -97,7 +98,6 @@ resources:
 			Properties struct {
 				Resource string          `json:"resource"`
 				Version  string          `json:"version"`
-				State    string          `json:"state"`
 				Name     json.RawMessage `json:"_name"`
 			} `json:"properties"`
 		} `json:"resources"`
@@ -106,10 +106,13 @@ resources:
 		t.Fatalf("DSC Export must return two schema-validated instances: %s %v", export, err)
 	}
 	for _, resource := range exported.Resources {
-		if resource.Type != "DscPkg/Resource" || resource.Properties.Version != "1.0.0" || resource.Properties.State != "installed" ||
+		if resource.Type != "DscPkg/resources" || resource.Properties.Version != "1.0.0" ||
 			resource.Name != resource.Properties.Resource+"@"+resource.Properties.Version || len(resource.Properties.Name) != 0 {
 			t.Fatalf("invalid exported resource: %+v", resource)
 		}
+	}
+	if bytes.Contains(export, []byte(`"state"`)) {
+		t.Fatalf("Export returned removed state property: %s", export)
 	}
 	first := run(cli, "resource", "export")
 	if !bytes.Equal(first, run(cli, "resource", "export")) || bytes.Count(first, []byte("\n")) != 2 {

@@ -2,17 +2,15 @@ $schema: https://aka.ms/dsc/schemas/v3/bundled/config/document.json
 
 resources:
   - name: LinuxGroups
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscExtras.Linux/groups
-      state: installed
       repositories:
         - https://bpoe.github.io/dsc-extras/
 
   - name: LinuxServices
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscExtras.Linux/services
-      state: installed
       repositories:
         - https://bpoe.github.io/dsc-extras/

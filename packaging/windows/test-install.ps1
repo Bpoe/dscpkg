@@ -57,10 +57,10 @@ function Assert-Installed {
         $extension = $extensions | ConvertFrom-Json
         Assert-Equal $extension.type 'DscPkg/Discover' 'Installed DSC extension'
         Assert-Equal $extension.path $installedExtension 'Installed DSC extension path'
-        $resources = & $env:DSC_TEST_BIN --ignore-settings-file resource list DscPkg/Resource -o json
+        $resources = & $env:DSC_TEST_BIN --ignore-settings-file resource list DscPkg/resources -o json
         if ($LASTEXITCODE -ne 0) { throw 'DSC resource discovery failed.' }
         $resource = $resources | ConvertFrom-Json
-        Assert-Equal $resource.type 'DscPkg/Resource' 'Installed DSC resource'
+        Assert-Equal $resource.type 'DscPkg/resources' 'Installed DSC resource'
         Assert-Equal $resource.path $installedResource 'Installed DSC resource path'
     } finally {
         $env:DSC_RESOURCE_PATH, $env:DSC_RESTRICTED_PATH = $resourcePath, $restrictedPath

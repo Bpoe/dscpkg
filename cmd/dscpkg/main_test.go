@@ -189,18 +189,18 @@ func TestResourceCommands(t *testing.T) {
 	for _, test := range []struct {
 		operation, input, output, errorText string
 	}{
-		{"get", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing"}` + "\n", ""},
-		{"test", `{"resource":"Example/One"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":false}` + "\n" + `["state"]` + "\n", ""},
-		{"test", `{"resource":"Example/One","state":"missing"}`, `{"resource":"Example/One","state":"missing","_inDesiredState":true}` + "\n[]\n", ""},
+		{"get", `{"resource":"Example/One"}`, `{"resource":"Example/One"}` + "\n", ""},
+		{"test", `{"resource":"Example/One"}`, `{"resource":"Example/One","_inDesiredState":false}` + "\n" + `["version"]` + "\n", ""},
+		{"test", `{"resource":"Example/One","version":"1.0.0"}`, `{"resource":"Example/One","_inDesiredState":false}` + "\n" + `["version"]` + "\n", ""},
 		{"export", "", "", ""},
 		{"export", "not read", "", ""},
 		{"get", "{}", "", "invalid resource"},
 		{"get", "null", "", "invalid resource"},
 		{"get", `{"resource":"Example/One","unknown":true}`, "", "unknown field"},
-		{"test", `{"resource":"Example/One","state":"absent"}`, "", "invalid resource state"},
+		{"test", `{"resource":"Example/One","state":"installed"}`, "", `unknown field "state"`},
 		{"get", `{"resource":"Example/One"} {}`, "", "exactly one"},
 		{"set", `{"resource":"Example/One"}`, "", "repository"},
-		{"set", `{"resource":"Example/One","state":"missing"}`, "", "removal is not supported"},
+		{"set", `{"resource":"Example/One","state":"missing"}`, "", `unknown field "state"`},
 	} {
 		t.Run(test.operation+test.input, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
