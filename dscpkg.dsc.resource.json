@@ -1,6 +1,6 @@
 {
   "$schema": "https://aka.ms/dsc/schemas/v3/bundled/resource/manifest.json",
-  "type": "DscPkg/Resource",
+  "type": "DscPkg/resources",
   "version": "0.1.0",
   "description": "Ensure a DSC resource is installed in the local dscpkg package store.",
   "get": {
@@ -43,12 +43,6 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*$",
           "description": "Exact resource version; omit to accept any installed version."
-        },
-        "state": {
-          "type": "string",
-          "enum": ["installed", "missing"],
-          "default": "installed",
-          "description": "Only installed is supported for Set; missing is an observed state."
         },
         "repositories": {
           "type": "array",

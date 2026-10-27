@@ -170,7 +170,7 @@ func TestResourceStateAndSharedSet(t *testing.T) {
 	client := NewClient(filepath.Join(t.TempDir(), "missing"), nil)
 	desired := ResourceState{Resource: testResourceOne, Repositories: []string{server.URL}}
 	actual, differences, err := client.TestResource(desired, io.Discard)
-	if err != nil || actual.State != "missing" || !reflect.DeepEqual(differences, []string{"state"}) {
+	if err != nil || actual.Version != "" || !reflect.DeepEqual(differences, []string{"version"}) {
 		t.Fatalf("missing: %+v %v %v", actual, differences, err)
 	}
 	if _, err := os.Stat(client.PackagesDir); !os.IsNotExist(err) {
@@ -213,12 +213,8 @@ func TestResourceStateAndSharedSet(t *testing.T) {
 	}
 	desired.Version = "2.0.0"
 	actual, diff, err := client.TestResource(desired, io.Discard)
-	if err != nil || actual.State != "missing" || !reflect.DeepEqual(diff, []string{"state", "version"}) {
+	if err != nil || actual.Version != "" || !reflect.DeepEqual(diff, []string{"version"}) {
 		t.Fatalf("wrong version: %+v %v %v", actual, diff, err)
-	}
-	desired.State = "missing"
-	if _, err := client.SetResource(desired, io.Discard); err == nil {
-		t.Fatal("Set must reject removal")
 	}
 }
 

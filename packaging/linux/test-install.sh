@@ -62,7 +62,7 @@ verify_install() {
     env -u DSC_RESOURCE_PATH -u DSC_RESTRICTED_PATH "$DSC_TEST_BIN" --ignore-settings-file \
         extension list DscPkg/Discover -o json | grep -F '"type":"DscPkg/Discover"'
     env -u DSC_RESOURCE_PATH -u DSC_RESTRICTED_PATH "$DSC_TEST_BIN" --ignore-settings-file \
-        resource list DscPkg/Resource -o json | grep -F '"type":"DscPkg/Resource"'
+        resource list DscPkg/resources -o json | grep -F '"type":"DscPkg/resources"'
     dscpkg publish -h
     if [[ $format == deb ]]; then
         # dpkg-query, not Bash, expands this field.

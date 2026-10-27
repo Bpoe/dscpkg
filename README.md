@@ -43,9 +43,9 @@ including discovery and DSC resource operations, also honor
 uses `<user cache directory>/dscpkg/packages`. `--platform` overrides the detected
 `os_arch` archive key, for example `linux_amd64`.
 
-## Declare installed resources with DscPkg/Resource
+## Declare installed resources with DscPkg/resources
 
-DSC **3.3.0** can discover the native `DscPkg/Resource` resource directly beside
+DSC **3.3.0** can discover the native `DscPkg/resources` resource directly beside
 the dscpkg executable. It does not need to install itself through dscpkg.
 Use [`examples/00-resources.yaml`](examples/00-resources.yaml) as a dependency
 configuration:
@@ -54,17 +54,15 @@ configuration:
 $schema: https://aka.ms/dsc/schemas/v3/bundled/config/document.json
 resources:
   - name: LinuxGroups
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscExtras.Linux/groups
-      state: installed
       repositories:
         - https://bpoe.github.io/dsc-extras/
   - name: LinuxServices
-    type: DscPkg/Resource
+    type: DscPkg/resources
     properties:
       resource: DscExtras.Linux/services
-      state: installed
       repositories:
         - https://bpoe.github.io/dsc-extras/
 ```
@@ -80,8 +78,6 @@ The instance properties are:
 
 - `resource` (required): DSC type, such as `DscExtras.Linux/groups`.
 - `version` (optional): exact resource version. Add `version: 0.0.1` to pin it.
-- `state` (optional): defaults to `installed`. `missing` is also an observed state;
-  Set rejects removal requests, without deleting files or registrations.
 - `repositories` (optional): ordered origins used only when installation is
   necessary. No implicit repository is configured; supply these when applying
   a configuration to an empty store.
@@ -92,10 +88,12 @@ The instance properties are:
 providing the resource, not the desired resource version. CLI
 `--package-version` remains an independent exact selector.
 
-Get reports the exact installed version, or `state: missing`. Without a version,
+Get reports the exact installed version, or omits `version` and the observed
+package fields when no matching resource is installed. Without a version,
 it reports the newest locally installed matching version. Test uses that same
 local inspection and reports `_inDesiredState` and differing properties using
-DSC's `stateAndDiff` contract. **Neither Get nor Test contacts repositories,
+DSC's `stateAndDiff` contract. A missing resource reports `version` as differing,
+including when no exact version was requested. **Neither Get nor Test contacts repositories,
 creates a store, or writes state.** A compatible installation of any version
 satisfies an unversioned desired state, including one supplied by a shared package
 without an individual registry entry.
@@ -118,14 +116,14 @@ dscpkg resource export
 
 Test returns two JSON Lines: the observed state including `_inDesiredState`,
 then an array of differing property names. Export needs no input and emits one
-`DscPkg/Resource` instance per installed resource type/exact-version pair, in
+`DscPkg/resources` instance per installed resource type/exact-version pair, in
 deterministic, deduplicated JSON Lines. It includes unregistered resources from
 shared packages, never contacts repositories, and does not modify the store.
 Only Export adds `_name`, using the existing resource type and exact version
 directly, for example `"DscExtras.Linux/groups@0.1.1"`. DSC uses this as the
 configuration instance name and removes `_name` from the generated properties.
 Get, Test, and Set do not emit `_name`.
-Use `dsc resource export --resource DscPkg/Resource` to obtain a DSC configuration.
+Use `dsc resource export --resource DscPkg/resources` to obtain a DSC configuration.
 Export filtering is disabled.
 
 Get/Test/Export parse JSON and YAML native manifests and the `resources` entries
@@ -271,7 +269,7 @@ extension and its executable must be allowed by that configuration.
 
 This extension is strictly **local discovery** of already installed packages.
 Install dependencies explicitly with `dscpkg install` or declare them with
-`DscPkg/Resource`; no future remote-install protocol is implemented.
+`DscPkg/resources`; no future remote-install protocol is implemented.
 
 ## Commands
 
@@ -490,7 +488,7 @@ directory on PATH, keeping **all three files** together: `dscpkg` (`dscpkg.exe`
 on Windows), `dscpkg.dsc.extension.json`, and `dscpkg.dsc.resource.json`.
 This also applies to manual ZIP installation: copy all three files from `bin`
 into a directory on PATH, open a new terminal, and verify with
-`dsc extension list DscPkg/Discover` and `dsc resource list DscPkg/Resource`.
+`dsc extension list DscPkg/Discover` and `dsc resource list DscPkg/resources`.
 For a source build, copy both repository manifests alongside the executable. If
 `DSC_RESOURCE_PATH` is set, follow the bootstrap instructions above. Alternatively,
 use the appropriate native installer:

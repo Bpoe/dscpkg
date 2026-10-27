@@ -2,7 +2,6 @@ package dscpkg
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +14,6 @@ import (
 type ResourceState struct {
 	Resource       string   `json:"resource"`
 	Version        string   `json:"version,omitempty"`
-	State          string   `json:"state"`
 	Repositories   []string `json:"repositories,omitempty"`
 	Package        string   `json:"package,omitempty"`
 	PackageVersion string   `json:"packageVersion,omitempty"`
@@ -36,9 +34,6 @@ func validateResourceState(desired ResourceState) error {
 	}
 	if desired.Version != "" && !validSegment(strings.ToLower(desired.Version)) {
 		return fmt.Errorf("invalid resource version %q", desired.Version)
-	}
-	if desired.State != "" && desired.State != "installed" && desired.State != "missing" {
-		return fmt.Errorf("invalid resource state %q: expected installed or missing", desired.State)
 	}
 	return nil
 }
@@ -98,7 +93,7 @@ func (c *Client) InstalledResources(stderr io.Writer) ([]ResourceState, error) {
 				return nil, fmt.Errorf("manifest %q has invalid resource version %q", manifest.ManifestPath, identity.Version)
 			}
 			result = append(result, ResourceState{
-				Resource: identity.Type, Version: identity.Version, State: "installed",
+				Resource: identity.Type, Version: identity.Version,
 				Package: manifest.Package, PackageVersion: manifest.PackageVersion, Path: manifest.Path,
 			})
 		}
@@ -150,7 +145,7 @@ func (c *Client) GetResource(desired ResourceState, stderr io.Writer) (ResourceS
 			return state, nil
 		}
 	}
-	return ResourceState{Resource: desired.Resource, State: "missing", Repositories: desired.Repositories}, nil
+	return ResourceState{Resource: desired.Resource, Repositories: desired.Repositories}, nil
 }
 
 func (c *Client) TestResource(desired ResourceState, stderr io.Writer) (ResourceState, []string, error) {
@@ -158,15 +153,8 @@ func (c *Client) TestResource(desired ResourceState, stderr io.Writer) (Resource
 	if err != nil {
 		return ResourceState{}, nil, err
 	}
-	state := desired.State
-	if state == "" {
-		state = "installed"
-	}
 	differences := make([]string, 0)
-	if actual.State != state {
-		differences = append(differences, "state")
-	}
-	if desired.Version != "" && !strings.EqualFold(desired.Version, actual.Version) {
+	if actual.Version == "" || (desired.Version != "" && !strings.EqualFold(desired.Version, actual.Version)) {
 		differences = append(differences, "version")
 	}
 	compliant := len(differences) == 0
@@ -175,9 +163,6 @@ func (c *Client) TestResource(desired ResourceState, stderr io.Writer) (Resource
 }
 
 func (c *Client) SetResource(desired ResourceState, stderr io.Writer) (ResourceState, error) {
-	if desired.State == "missing" {
-		return ResourceState{}, errors.New("state missing is observation-only; resource removal is not supported")
-	}
 	actual, differences, err := c.TestResource(desired, stderr)
 	if err != nil {
 		return ResourceState{}, err
